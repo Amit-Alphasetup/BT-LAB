@@ -66,6 +66,11 @@
         <option value="ALL">ALL must be true</option>
         <option value="ANY">ANY may be true</option>
       </select>
+      <select id="f-entry-measure" style="width:auto;padding:6px 24px 6px 8px;font-size:11px">
+        <option value="close">on close</option>
+        <option value="high">on day's high</option>
+        <option value="low">on day's low</option>
+      </select>
     </h2>
     <div class="section-body">
       <div id="entry-list"></div>
@@ -84,6 +89,13 @@
         <label class="field"><span>Trail % from peak</span><input id="f-trail" type="number" step="0.1" placeholder="off"></label>
         <label class="field"><span>Time stop (bars)</span><input id="f-timestop" type="number" step="1" placeholder="off"></label>
       </div>
+      <label class="field"><span>Measure target and stop against</span>
+        <select id="f-exit-measure">
+          <option value="close">the closing price (conservative)</option>
+          <option value="high">the day's high for targets</option>
+          <option value="low">the day's low for stops</option>
+          <option value="highlow">the day's high and low</option>
+        </select></label>
       <label class="field"><span>Lot accounting</span>
         <select id="f-accounting">
           <option value="FIFO">FIFO — oldest lot exits first</option>
