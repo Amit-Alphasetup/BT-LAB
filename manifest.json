@@ -1,0 +1,13 @@
+{
+  "name": "Backtest Lab",
+  "short_name": "BacktestLab",
+  "description": "Configure any trading strategy, test it on real NSE history, and see the number after real charges.",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#14120F",
+  "theme_color": "#14120F",
+  "orientation": "portrait",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#14120F">
+<title>Backtest Lab</title>
+<link rel="stylesheet" href="app.css">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+</head>
+<body>
+
+<header class="masthead">
+  <div class="wordmark">BACKTEST<b>LAB</b></div>
+  <div class="doc">
+    <div id="doc-strategy">NO STRATEGY LOADED</div>
+    <div id="doc-data" class="muted">DATA — NOT LOADED</div>
+  </div>
+</header>
+
+<nav class="tabs" role="tablist">
+  <button class="tab" role="tab" aria-selected="true"  data-screen="build">Strategy</button>
+  <button class="tab" role="tab" aria-selected="false" data-screen="chart">Chart</button>
+  <button class="tab" role="tab" aria-selected="false" data-screen="report">Report</button>
+  <button class="tab" role="tab" aria-selected="false" data-screen="studio">Studio</button>
+  <button class="tab" role="tab" aria-selected="false" data-screen="portfolio">Portfolio</button>
+  <button class="tab" role="tab" aria-selected="false" data-screen="library">Library</button>
+  <button class="tab" role="tab" aria-selected="false" data-screen="json">Advanced</button>
+  <button class="tab" role="tab" aria-selected="false" data-screen="data">Data</button>
+</nav>
+
+<!-- ============ STRATEGY ============ -->
+<main id="screen-build" class="screen active">
+
+  <div id="validation" class="hidden"></div>
+
+  <section class="section">
+    <h2>Instrument <span class="hint">what to test</span></h2>
+    <div class="section-body">
+      <div class="row">
+        <label class="field"><span>Symbol</span>
+          <input id="f-symbol" value="RELIANCE" autocapitalize="characters" spellcheck="false"></label>
+        <label class="field"><span>Strategy name</span>
+          <input id="f-label" value="Moving-average stack breakout"></label>
+      </div>
+      <label class="field"><span>How it works — shown on screen in videos</span>
+        <input id="f-note" placeholder="One line describing the rule"></label>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>Indicators <span class="hint">computed once per run</span></h2>
+    <div class="section-body">
+      <div id="ind-list"></div>
+      <div class="btn-row"><button class="btn ghost" id="add-ind">+ Add indicator</button></div>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>
+      Entry
+      <select id="f-entry-join" style="width:auto;padding:6px 24px 6px 8px;font-size:11px">
+        <option value="ALL">ALL must be true</option>
+        <option value="ANY">ANY may be true</option>
+      </select>
+    </h2>
+    <div class="section-body">
+      <div id="entry-list"></div>
+      <div class="btn-row"><button class="btn ghost" id="add-entry">+ Add condition</button></div>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>Exit <span class="hint">first one to fire wins</span></h2>
+    <div class="section-body">
+      <div class="row">
+        <label class="field"><span>Target %</span><input id="f-target" type="number" step="0.1" placeholder="off"></label>
+        <label class="field"><span>Stop %</span><input id="f-stop" type="number" step="0.1" placeholder="off"></label>
+      </div>
+      <div class="row">
+        <label class="field"><span>Trail % from peak</span><input id="f-trail" type="number" step="0.1" placeholder="off"></label>
+        <label class="field"><span>Time stop (bars)</span><input id="f-timestop" type="number" step="1" placeholder="off"></label>
+      </div>
+      <label class="field"><span>Lot accounting</span>
+        <select id="f-accounting">
+          <option value="FIFO">FIFO — oldest lot exits first</option>
+          <option value="LIFO">LIFO — newest lot exits first</option>
+        </select></label>
+      <label class="field" style="display:flex;gap:9px;align-items:center">
+        <input type="checkbox" id="f-use-exit-cond" style="width:auto;margin:0">
+        <span style="margin:0;letter-spacing:.04em">Also exit on a condition</span>
+      </label>
+      <div id="exit-cond-wrap" class="hidden"><div id="exit-cond-list"></div></div>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>Position</h2>
+    <div class="section-body">
+      <div class="row">
+        <label class="field"><span>Starting capital ₹</span><input id="f-capital" type="number" value="100000"></label>
+        <label class="field"><span>Sizing</span>
+          <select id="f-size-mode">
+            <option value="fixed">Fixed ₹ per trade</option>
+            <option value="capitalFraction">% of capital</option>
+          </select></label>
+      </div>
+      <label class="field"><span id="f-size-label">Amount per trade ₹</span><input id="f-size-value" type="number" value="20000"></label>
+      <label class="field" style="display:flex;gap:9px;align-items:center">
+        <input type="checkbox" id="f-pyr" style="width:auto;margin:0">
+        <span style="margin:0;letter-spacing:.04em">Add to the position on further signals</span>
+      </label>
+      <div id="pyr-wrap" class="hidden">
+        <label class="field"><span>Maximum lots</span><input id="f-maxlots" type="number" value="3" min="2"></label>
+        <div class="figure-label">Add another lot when</div>
+        <div id="pyr-cond-list"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>
+      Charges
+      <span class="stamp-switch">
+        <button class="real" id="sw-real" aria-pressed="true">Real</button>
+        <button class="raw"  id="sw-raw"  aria-pressed="false">Raw</button>
+      </span>
+    </h2>
+    <div class="section-body">
+      <div class="notice" id="cost-note">
+        Real applies Zerodha delivery charges — STT, exchange, GST, SEBI, stamp duty and DP —
+        plus slippage. Raw strips every charge, which is the number most strategy videos show.
+      </div>
+      <label class="field"><span>Broker preset</span>
+        <select id="f-cost-preset">
+          <option value="zerodha_delivery">Zerodha delivery (equity)</option>
+          <option value="zerodha_intraday">Zerodha intraday (equity)</option>
+        </select></label>
+      <div class="row">
+        <label class="field"><span>Slippage (bps)</span><input id="f-slippage" type="number" value="5"></label>
+        <label class="field"><span>Max % of daily volume</span><input id="f-volcap" type="number" step="0.5" value="2"></label>
+      </div>
+    </div>
+  </section>
+
+  <div class="btn-row">
+    <button class="btn primary wide" id="btn-run">Run backtest</button>
+  </div>
+  <div class="btn-row">
+    <button class="btn" id="btn-save">Save</button>
+    <button class="btn" id="btn-export">Export .json</button>
+    <button class="btn" id="btn-import">Import</button>
+    <input type="file" id="file-import" accept=".json" class="hidden">
+  </div>
+</main>
+
+
+<!-- ============ CHART ============ -->
+<main id="screen-chart" class="screen">
+  <div id="chart-empty" class="notice">Run a backtest to see the trades on the chart.</div>
+
+  <section class="section" id="chart-wrap" style="display:none">
+    <h2>
+      <span id="chart-title">—</span>
+      <span class="hint" id="chart-engine"></span>
+    </h2>
+    <div class="section-body" style="padding:8px">
+      <div id="chart-host" style="width:100%;height:380px"></div>
+      <div class="btn-row" style="margin-top:10px">
+        <button class="btn ghost" id="rp-play">▶ Replay</button>
+        <button class="btn ghost" id="rp-back">‹</button>
+        <button class="btn ghost" id="rp-fwd">›</button>
+        <button class="btn ghost" id="rp-all">Show all</button>
+        <select id="rp-speed" style="width:auto;padding:9px 26px 9px 9px;font-size:11px">
+          <option value="12">Slow</option>
+          <option value="24" selected>Normal</option>
+          <option value="60">Fast</option>
+          <option value="150">Very fast</option>
+        </select>
+      </div>
+      <div class="kv" style="border:0;padding-top:10px">
+        <span id="rp-date">—</span><span id="rp-progress" class="mono">—</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="trades-wrap" style="display:none">
+    <h2>Trades <span class="hint" id="trades-count"></span></h2>
+    <div class="section-body" style="padding:6px 14px">
+      <div id="trades-list"></div>
+    </div>
+  </section>
+</main>
+
+
+<!-- ============ REPORT ============ -->
+<main id="screen-report" class="screen">
+  <div id="report-empty" class="notice">Run a backtest to see the full report.</div>
+  <div id="report-body" style="display:none">
+
+    <section class="section">
+      <h2><span id="rep-title">—</span>
+        <span class="stamp-switch">
+          <button class="real" id="rep-real" aria-pressed="true">Real</button>
+          <button class="raw"  id="rep-raw"  aria-pressed="false">Raw</button>
+        </span>
+      </h2>
+      <div class="section-body">
+        <div id="rep-period" class="figure-label"></div>
+        <div id="rep-headline" class="headline-grid"></div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Equity <span class="hint">strategy against buy &amp; hold</span></h2>
+      <div class="section-body" style="padding:10px"><canvas id="plot-equity"></canvas></div>
+    </section>
+
+    <section class="section">
+      <h2>Drawdown <span class="hint">how far below the peak</span></h2>
+      <div class="section-body" style="padding:10px"><canvas id="plot-dd"></canvas></div>
+    </section>
+
+    <section class="section">
+      <h2>Month by month</h2>
+      <div class="section-body" style="padding:10px;overflow-x:auto"><div id="rep-heatmap"></div></div>
+    </section>
+
+    <section class="section">
+      <h2>Trade returns</h2>
+      <div class="section-body" style="padding:10px"><canvas id="plot-hist"></canvas></div>
+    </section>
+
+    <section class="section">
+      <h2>Rolling one-year return</h2>
+      <div class="section-body" style="padding:10px"><canvas id="plot-roll"></canvas></div>
+    </section>
+
+    <div id="rep-groups"></div>
+
+    <section class="section">
+      <h2>What this does not account for</h2>
+      <div class="section-body"><ul id="rep-caveats" class="caveats"></ul></div>
+    </section>
+
+    <div class="btn-row"><button class="btn" id="rep-csv">Export trades as CSV</button></div>
+  </div>
+</main>
+
+<!-- ============ STUDIO ============ -->
+<main id="screen-studio" class="screen">
+  <div id="studio-empty" class="notice">Run a backtest first, then present it here.</div>
+  <div id="studio-body" style="display:none">
+    <div id="studio-warn"></div>
+    <div class="btn-row">
+      <button class="btn" id="st-ratio" data-ratio="9:16">9:16</button>
+      <button class="btn ghost" id="st-prev">‹ Back</button>
+      <button class="btn ghost" id="st-next">Next ›</button>
+      <span class="mono muted" id="st-count" style="align-self:center;font-size:11px"></span>
+    </div>
+    <div id="stage" class="stage r916">
+      <div class="stage-inner">
+        <div class="stage-mark">BACKTEST<b>LAB</b></div>
+        <div id="stage-content"></div>
+        <div class="stage-foot" id="stage-foot"></div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<!-- ============ PORTFOLIO ============ -->
+<main id="screen-portfolio" class="screen">
+  <div class="notice">
+    The same strategy across many symbols sharing one pot of money and a fixed number of slots.
+    Almost nobody publishes this number — it is usually far below the single-stock result.
+  </div>
+  <section class="section">
+    <h2>Setup</h2>
+    <div class="section-body">
+      <label class="field"><span>Symbols — comma separated, must be downloaded already</span>
+        <input id="pf-symbols" placeholder="RELIANCE, TCS, INFY"></label>
+      <div class="row">
+        <label class="field"><span>Slots</span><input id="pf-slots" type="number" value="10" min="1"></label>
+        <label class="field"><span>Capital ₹</span><input id="pf-capital" type="number" value="500000"></label>
+      </div>
+      <label class="field"><span>When more signals than free slots</span>
+        <select id="pf-ranking"></select></label>
+      <div class="btn-row"><button class="btn primary wide" id="pf-run">Run portfolio backtest</button></div>
+      <div id="pf-status"></div>
+    </div>
+  </section>
+  <section class="section" id="pf-results" style="display:none">
+    <h2>Result</h2>
+    <div class="section-body">
+      <div id="pf-headline" class="headline-grid"></div>
+      <div class="spacer"></div>
+      <canvas id="pf-plot"></canvas>
+      <div class="spacer"></div>
+      <div id="pf-stats"></div>
+      <h3 class="figure-label" style="margin-top:16px">Contribution by symbol</h3>
+      <div id="pf-symbols-out"></div>
+      <h3 class="figure-label" style="margin-top:16px">Signals not taken</h3>
+      <div id="pf-skipped"></div>
+    </div>
+  </section>
+</main>
+
+<!-- ============ LIBRARY ============ -->
+<main id="screen-library" class="screen">
+  <div class="notice">
+    Strategies are stored as plain JSON. Export the file that produced any published
+    result so anyone can reproduce it.
+  </div>
+  <section class="section">
+    <h2>Strategies</h2>
+    <div class="section-body"><div id="lib-list"></div></div>
+  </section>
+</main>
+
+<!-- ============ ADVANCED ============ -->
+<main id="screen-json" class="screen">
+  <section class="section">
+    <h2>Schema <span class="hint">edit directly</span></h2>
+    <div class="section-body">
+      <textarea id="json-box" spellcheck="false"></textarea>
+      <div class="btn-row">
+        <button class="btn" id="json-load">Load into form</button>
+        <button class="btn ghost" id="json-refresh">Refresh from form</button>
+      </div>
+      <div id="json-msg"></div>
+    </div>
+  </section>
+</main>
+
+<!-- ============ DATA ============ -->
+<main id="screen-data" class="screen">
+  <section class="section">
+    <h2>Storage</h2>
+    <div class="section-body"><div id="storage-out"></div>
+      <div class="btn-row"><button class="btn" id="btn-storage">Check</button></div>
+    </div>
+  </section>
+  <section class="section">
+    <h2>Price history</h2>
+    <div class="section-body">
+      <label class="field"><span>Worker URL</span>
+        <input id="f-worker" placeholder="https://your-worker.workers.dev"></label>
+      <div class="btn-row">
+        <button class="btn primary" id="btn-fetch">Download symbol</button>
+        <button class="btn" id="btn-cached">Show cached</button>
+      </div>
+      <div id="data-out"></div>
+    </div>
+  </section>
+  <section class="section">
+    <h2>Manual import</h2>
+    <div class="section-body">
+      <div class="notice">Works with an NSE bhavcopy CSV or any file with date and OHLCV columns.</div>
+      <div class="btn-row">
+        <button class="btn" id="btn-csv">Import CSV</button>
+        <input type="file" id="file-csv" accept=".csv,.txt" class="hidden">
+      </div>
+      <div id="csv-out"></div>
+    </div>
+  </section>
+</main>
+
+<div class="disclaimer">
+  Backtested and hypothetical. Educational only — not investment advice.
+  Past performance does not indicate future returns.
+</div>
+
+<script type="module" src="ui.js"></script>
+</body>
+</html>
