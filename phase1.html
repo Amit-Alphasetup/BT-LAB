@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Backtest Lab — Phase 1 Data Layer</title>
+<style>
+  :root{
+    --bg:#0a0c10; --panel:#12161d; --line:#1e2530; --ink:#e6edf3;
+    --dim:#7d8896; --accent:#00e5a0; --warn:#ffb020; --bad:#ff5c5c;
+    --mono:ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:15px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+    padding:16px 14px 60px;-webkit-font-smoothing:antialiased}
+  header{display:flex;align-items:baseline;gap:10px;margin-bottom:4px}
+  .mark{font:700 19px/1 var(--mono);letter-spacing:-.5px}
+  .mark span{color:var(--accent)}
+  .tag{font:600 10px/1 var(--mono);color:var(--dim);letter-spacing:1.5px;
+    border:1px solid var(--line);padding:4px 7px;border-radius:4px}
+  h2{font:600 12px/1 var(--mono);letter-spacing:1.5px;color:var(--dim);
+    text-transform:uppercase;margin:22px 0 10px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:12px}
+  button{background:#1b222c;color:var(--ink);border:1px solid var(--line);
+    border-radius:8px;padding:11px 14px;font:600 14px/1 inherit;cursor:pointer;
+    margin:0 6px 6px 0;-webkit-tap-highlight-color:transparent}
+  button:active{transform:translateY(1px)}
+  button.primary{background:var(--accent);color:#04120c;border-color:var(--accent)}
+  button:disabled{opacity:.4}
+  input{background:#0d1117;border:1px solid var(--line);color:var(--ink);
+    border-radius:8px;padding:11px;font:14px var(--mono);width:100%;margin-bottom:8px}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .kv{display:flex;justify-content:space-between;gap:12px;padding:7px 0;
+    border-bottom:1px solid var(--line);font:13px var(--mono)}
+  .kv:last-child{border:0}
+  .kv span:first-child{color:var(--dim)}
+  .ok{color:var(--accent)} .warn{color:var(--warn)} .bad{color:var(--bad)}
+  #log{font:11.5px/1.55 var(--mono);white-space:pre-wrap;word-break:break-word;
+    max-height:300px;overflow:auto;background:#0d1117;border:1px solid var(--line);
+    border-radius:8px;padding:11px;color:var(--dim)}
+  .bar{height:5px;background:#0d1117;border-radius:3px;overflow:hidden;margin:9px 0}
+  .bar>i{display:block;height:100%;background:var(--accent);width:0;transition:width .2s}
+  a{color:var(--accent)}
+</style>
+</head>
+<body>
+<header>
+  <div class="mark">BACKTEST<span>LAB</span></div>
+  <div class="tag">PHASE 1 · DATA</div>
+</header>
+
+<h2>Storage</h2>
+<div class="card">
+  <div id="storage"><div class="kv"><span>status</span><span>checking…</span></div></div>
+  <button onclick="checkStorage()">Re-check</button>
+  <button onclick="wipe()">Wipe DB</button>
+</div>
+
+<h2>Single symbol</h2>
+<div class="card">
+  <input id="sym" value="RELIANCE" placeholder="Symbol (no .NS)">
+  <div class="row">
+    <button class="primary" onclick="dl()">Download</button>
+    <button onclick="loadCached()">Load cached</button>
+    <button onclick="timeLoad()">Time warm load</button>
+  </div>
+  <div id="symout"></div>
+</div>
+
+<h2>Bulk (Nifty 50)</h2>
+<div class="card">
+  <div class="row">
+    <button class="primary" onclick="bulk()">Start / resume</button>
+    <button onclick="stopBulk()">Stop</button>
+    <button onclick="resetCkpt()">Reset checkpoint</button>
+  </div>
+  <div class="bar"><i id="pbar"></i></div>
+  <div id="bulkout"></div>
+</div>
+
+<h2>Bhavcopy (daily top-up)</h2>
+<div class="card">
+  <input id="bdate" type="date">
+  <div class="row"><button onclick="bhav()">Fetch day</button></div>
+  <div id="bhavout"></div>
+</div>
+
+<h2>Import / export</h2>
+<div class="card">
+  <div class="row">
+    <button onclick="expSeed()">Export seed</button>
+    <button onclick="document.getElementById('seedf').click()">Import seed</button>
+    <button onclick="document.getElementById('csvf').click()">Import CSV</button>
+  </div>
+  <input type="file" id="seedf" accept=".json" style="display:none" onchange="impSeed(this)">
+  <input type="file" id="csvf" accept=".csv,.txt" style="display:none" onchange="impCSV(this)">
+  <div id="ioout"></div>
+</div>
+
+<h2>Log</h2>
+<div id="log"></div>
+
+<script type="module">
+import * as D from './data.js';
+window.D = D;
+
+const $ = (id) => document.getElementById(id);
+const logEl = $('log');
+let stopped = false;
+
+function log(msg, cls){
+  const line = `[${new Date().toLocaleTimeString()}] ${msg}\n`;
+  logEl.textContent += line;
+  logEl.scrollTop = logEl.scrollHeight;
+  if(cls) console.log(msg);
+}
+window.log = log;
+
+function kv(pairs){
+  return pairs.map(([k,v,c]) =>
+    `<div class="kv"><span>${k}</span><span class="${c||''}">${v}</span></div>`).join('');
+}
+const fmtMB = (b) => b == null ? '—' : (b/1048576).toFixed(1)+' MB';
+const fmtD  = (ms) => ms ? new Date(ms).toISOString().slice(0,10) : '—';
+
+window.checkStorage = async function(){
+  try{
+    const p = await D.ensurePersistence();
+    $('storage').innerHTML = kv([
+      ['persist API', p.supported ? 'available' : 'missing', p.supported?'ok':'warn'],
+      ['persisted', p.persisted ? 'YES' : 'NO (eviction risk)', p.persisted?'ok':'warn'],
+      ['usage', fmtMB(p.usage)],
+      ['quota', fmtMB(p.quota)],
+    ]);
+    log(`storage: persisted=${p.persisted} usage=${fmtMB(p.usage)} quota=${fmtMB(p.quota)}`);
+  }catch(e){
+    $('storage').innerHTML = kv([['error', e.message, 'bad']]);
+    log('storage error: '+e.message);
+  }
+};
+
+window.wipe = async function(){
+  if(!confirm('Delete all cached data?')) return;
+  await D.idbClear(D.STORE_BARS); await D.idbClear(D.STORE_META);
+  log('DB wiped'); checkStorage();
+};
+
+window.dl = async function(){
+  const s = $('sym').value.trim().toUpperCase();
+  $('symout').innerHTML = kv([['status','fetching…']]);
+  const t0 = performance.now();
+  try{
+    const json = await D.fetchYahoo(s);
+    const { rows, splits, dividends } = D.parseYahoo(json);
+    let rec = (await D.loadRecord(s)) || D.emptyRecord(s);
+    rec.splits = splits; rec.dividends = dividends;
+    rec = D.mergeRows(rec, rows, 'yahoo');
+    D.buildAdjusted(rec);
+    const anom = D.detectAnomalies(rec);
+    rec.flags = anom.length ? ['CA_ANOMALY'] : []; rec.anomalies = anom;
+    await D.saveRecord(rec);
+    const ms = (performance.now()-t0).toFixed(0);
+    const stale = D.tradingDaysStale(rec.lastDate);
+    $('symout').innerHTML = kv([
+      ['bars', rec.t.length, 'ok'],
+      ['from', fmtD(rec.t[0])],
+      ['to', fmtD(rec.lastDate)],
+      ['years', (rec.t.length/250).toFixed(1)],
+      ['splits', splits.length],
+      ['dividends', dividends.length],
+      ['anomalies', anom.length, anom.length?'warn':'ok'],
+      ['stale (trading days)', stale, stale>3?'warn':'ok'],
+      ['fetch time', ms+' ms'],
+    ]);
+    log(`${s}: ${rec.t.length} bars, ${fmtD(rec.t[0])} → ${fmtD(rec.lastDate)}, ${ms}ms`);
+    if(anom.length) log(`  ⚠ ${anom.length} unexplained >40% moves — first: ${fmtD(anom[0].date)} ${anom[0].from.toFixed(1)}→${anom[0].to.toFixed(1)}`);
+  }catch(e){
+    $('symout').innerHTML = kv([['error', e.message, 'bad']]);
+    log('fetch failed: '+e.message);
+  }
+};
+
+window.loadCached = async function(){
+  const s = $('sym').value.trim().toUpperCase();
+  const rec = await D.loadRecord(s);
+  if(!rec){ $('symout').innerHTML = kv([['cached','none','warn']]); return; }
+  $('symout').innerHTML = kv([
+    ['bars', rec.t.length, 'ok'],
+    ['from', fmtD(rec.t[0])], ['to', fmtD(rec.lastDate)],
+    ['source', rec.source], ['flags', rec.flags.join(',')||'none', rec.flags.length?'warn':'ok'],
+  ]);
+  log(`${s}: loaded ${rec.t.length} bars from cache`);
+};
+
+window.timeLoad = async function(){
+  const keys = await D.idbKeys(D.STORE_BARS);
+  if(!keys.length){ log('nothing cached'); return; }
+  const t0 = performance.now();
+  let bars = 0;
+  for(const k of keys){ const r = await D.loadRecord(k); bars += r.t.length; }
+  const ms = performance.now()-t0;
+  $('symout').innerHTML = kv([
+    ['symbols', keys.length], ['total bars', bars.toLocaleString()],
+    ['warm load', ms.toFixed(0)+' ms', ms<2000?'ok':'warn'],
+  ]);
+  log(`warm load: ${keys.length} symbols / ${bars.toLocaleString()} bars in ${ms.toFixed(0)}ms`);
+};
+
+window.bulk = async function(){
+  stopped = false;
+  const syms = D.NIFTY_50;
+  log(`bulk start: ${syms.length} symbols (concurrency 3)`);
+  const t0 = performance.now();
+  const res = await D.bulkDownload(syms, {
+    onProgress: (p) => {
+      if(stopped) throw new Error('STOPPED');
+      $('pbar').style.width = (p.done/p.total*100)+'%';
+      $('bulkout').innerHTML = kv([
+        ['progress', `${p.done}/${p.total}`],
+        ['last', `${p.symbol} ${p.status}${p.bars?' ('+p.bars+' bars)':''}`,
+          p.status==='fail'?'bad':'ok'],
+      ]);
+      if(p.status==='fail') log(`  ✗ ${p.symbol}: ${p.error}`);
+    }
+  });
+  const mins = ((performance.now()-t0)/60000).toFixed(1);
+  log(`bulk done in ${mins} min — ok:${res.done.length} failed:${res.failed.length}`);
+  if(res.failed.length) log('failed: '+res.failed.map(f=>f.symbol).join(', '));
+};
+window.stopBulk = () => { stopped = true; log('stop requested'); };
+window.resetCkpt = async () => { await D.clearCheckpoint(); log('checkpoint cleared'); };
+
+window.bhav = async function(){
+  const v = $('bdate').value;
+  if(!v){ log('pick a date'); return; }
+  $('bhavout').innerHTML = kv([['status','fetching…']]);
+  try{
+    const map = await D.fetchBhavcopy(new Date(v));
+    const rel = map.get('RELIANCE');
+    $('bhavout').innerHTML = kv([
+      ['symbols in file', map.size, 'ok'],
+      ['RELIANCE close', rel ? rel.c : 'not found'],
+    ]);
+    log(`bhavcopy ${v}: ${map.size} symbols`);
+  }catch(e){
+    $('bhavout').innerHTML = kv([
+      ['error', e.message, 'bad'],
+      ['manual', e.manualURL ? `<a href="${e.manualURL}" target="_blank">download by hand</a>` : '—'],
+    ]);
+    log(`bhavcopy failed: ${e.message}`);
+  }
+};
+
+window.expSeed = async function(){
+  const blob = await D.exportSeed();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `btlab-seed-${new Date().toISOString().slice(0,10)}.json`;
+  a.click(); URL.revokeObjectURL(url);
+  log(`seed exported (${(blob.size/1048576).toFixed(1)} MB)`);
+};
+
+window.impSeed = async function(input){
+  const f = input.files[0]; if(!f) return;
+  try{
+    const n = await D.importSeed(await f.text());
+    $('ioout').innerHTML = kv([['imported', n+' symbols','ok']]);
+    log(`seed imported: ${n} symbols`);
+  }catch(e){ log('seed import failed: '+e.message); }
+};
+
+window.impCSV = async function(input){
+  const f = input.files[0]; if(!f) return;
+  const text = await f.text();
+  try{
+    if(/SYMBOL/i.test(text.split('\n')[0]) && /SERIES/i.test(text.split('\n')[0])){
+      const map = D.parseBhavcopy(text);
+      let n = 0;
+      for(const [sym,row] of map){
+        let rec = (await D.loadRecord(sym)) || D.emptyRecord(sym);
+        rec = D.mergeRows(rec, [row], 'bhavcopy');
+        await D.saveRecord(rec); n++;
+      }
+      $('ioout').innerHTML = kv([['bhavcopy rows merged', n, 'ok']]);
+      log(`bhavcopy file: merged ${n} symbols`);
+    } else {
+      const sym = prompt('Symbol for this CSV?', 'RELIANCE');
+      if(!sym) return;
+      const rows = D.parseGenericCSV(text);
+      let rec = (await D.loadRecord(sym.toUpperCase())) || D.emptyRecord(sym.toUpperCase());
+      rec = D.mergeRows(rec, rows, 'csv');
+      D.buildAdjusted(rec);
+      await D.saveRecord(rec);
+      $('ioout').innerHTML = kv([['rows', rows.length, 'ok'],['total bars', rec.t.length]]);
+      log(`CSV: ${rows.length} rows into ${sym}`);
+    }
+  }catch(e){ log('CSV import failed: '+e.message); }
+};
+
+$('bdate').value = new Date(Date.now()-86400000).toISOString().slice(0,10);
+checkStorage();
+log('Phase 1 harness ready.');
+</script>
+</body>
+</html>
