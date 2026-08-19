@@ -159,6 +159,8 @@ bind('f-symbol', () => form.symbol, v => form.symbol = String(v).toUpperCase());
 bind('f-label',  () => form.label,  v => form.label = v);
 bind('f-note',   () => form.note,   v => form.note = v);
 bind('f-entry-join', () => form.entryJoin, v => form.entryJoin = v);
+bind('f-entry-measure', () => form.entryMeasureOn, v => form.entryMeasureOn = v);
+bind('f-exit-measure', () => form.exit.measureOn, v => form.exit.measureOn = v);
 bind('f-target', () => form.exit.targetPct, v => form.exit.targetPct = v);
 bind('f-stop',   () => form.exit.stopPct,   v => form.exit.stopPct = v);
 bind('f-trail',  () => form.exit.trailPct,  v => form.exit.trailPct = v);
