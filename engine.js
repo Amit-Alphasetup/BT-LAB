@@ -243,9 +243,69 @@ export function evalExpr(expr, ctx) {
       const a = v(0), b = v(1);
       return b === 0 ? NaN : a / b * 100;
     }
+
+    /* ["armed_since", <armCondition>, <expiryBars>]
+       True from the bar the arm condition fires until it expires or the
+       position opens. This is what makes two-step entries expressible:
+       "touch the 20-day low, THEN break the 20-day high".
+       State lives in ctx.latch, keyed by the arm expression, and is
+       advanced once per bar by the engine — never by the evaluator, so
+       repeated reads inside one bar are free of side effects. */
+    case 'armed_since': {
+      if (!ctx.latch) return false;
+      const key = latchKey(args[0]);
+      const rec = ctx.latch.get(key);
+      if (!rec || rec.armedAt < 0) return false;
+      const expiry = args[1] == null ? Infinity : evalExpr(args[1], ctx);
+      if (!Number.isFinite(expiry)) return true;
+      return (ctx.i - rec.armedAt) <= expiry;
+    }
+    case 'bars_since_armed': {
+      if (!ctx.latch) return NaN;
+      const rec = ctx.latch.get(latchKey(args[0]));
+      return (!rec || rec.armedAt < 0) ? NaN : ctx.i - rec.armedAt;
+    }
     default: throw new Error('Unknown operator: ' + op);
   }
 }
+
+/* Stable key for a latch: the arm expression itself. */
+export function latchKey(expr) { return JSON.stringify(expr); }
+
+/* Every armed_since / bars_since_armed inside an expression tree. */
+export function collectLatches(expr, out = []) {
+  if (!Array.isArray(expr)) return out;
+  if (expr[0] === 'armed_since' || expr[0] === 'bars_since_armed') {
+    out.push({ key: latchKey(expr[1]), arm: expr[1] });
+  }
+  for (const a of expr.slice(1)) collectLatches(a, out);
+  return out;
+}
+
+export function schemaLatches(schema) {
+  const found = [];
+  for (const c of (schema.entry?.conditions || [])) collectLatches(c, found);
+  if (schema.exit?.condition) collectLatches(schema.exit.condition, found);
+  if (schema.pyramiding?.trigger) collectLatches(schema.pyramiding.trigger, found);
+  const seen = new Map();
+  for (const f of found) if (!seen.has(f.key)) seen.set(f.key, f);
+  return [...seen.values()];
+}
+
+/* Advance every latch for bar i. Called once per bar by the engine. */
+export function stepLatches(latch, defs, ctx) {
+  for (const d of defs) {
+    let rec = latch.get(d.key);
+    if (!rec) { rec = { armedAt: -1 }; latch.set(d.key, rec); }
+    const armCtxNoLatch = { ...ctx, latch: null };   // arm conditions can't self-reference
+    if (truthy(evalExpr(d.arm, armCtxNoLatch))) rec.armedAt = ctx.i;
+  }
+}
+
+export function clearLatches(latch) {
+  for (const rec of latch.values()) rec.armedAt = -1;
+}
+
 
 function truthy(x) { return x === true || (typeof x === 'number' && x !== 0 && Number.isFinite(x)); }
 function allFinite(...xs) { return xs.every(x => Number.isFinite(x)); }
@@ -264,9 +324,9 @@ function resolveOperand(name, ctx) {
 }
 
 /* ctx.prev: same ctx one bar back (for cross detection) */
-function makeCtx(bars, ind, i, pos) {
-  const ctx = { bars, ind, i, pos };
-  ctx.prev = i > 0 ? { bars, ind, i: i - 1, pos } : { bars, ind, i: 0, pos };
+function makeCtx(bars, ind, i, pos, latch) {
+  const ctx = { bars, ind, i, pos, latch };
+  ctx.prev = i > 0 ? { bars, ind, i: i - 1, pos, latch } : { bars, ind, i: 0, pos, latch };
   return ctx;
 }
 
@@ -351,6 +411,8 @@ export function runBacktest(bars, schema, options = {}) {
   const ind = computeIndicators(indBars, schema);
 
   const startIdx = warmupBars(schema);
+  const latchDefs = schemaLatches(schema);
+  const latch = new Map();
   const dataAsOf = options.dataAsOf ?? Infinity;      // publish-lag cutoff (SEBI policy)
 
   const cap0 = schema.sizing?.capital ?? 100000;
@@ -398,7 +460,8 @@ export function runBacktest(bars, schema, options = {}) {
 
     /* ---- evaluate signals on this close (fill next open) ---- */
     const pos = positionCtx(lots, bars, i);
-    const ctx = makeCtx(indBars, ind, i, pos);
+    const ctx = makeCtx(indBars, ind, i, pos, latch);
+    if (latchDefs.length) stepLatches(latch, latchDefs, ctx);
 
     if (lots.length) {
       const ex = checkExit(schema, ctx, bars, i, lots);
@@ -409,7 +472,10 @@ export function runBacktest(bars, schema, options = {}) {
         ? true
         : (schema.pyramiding?.enabled && lots.length < (schema.pyramiding.maxLots ?? 1));
       if (canAdd && evalCondition(schema.entry, ctx)) {
-        if (lots.length === 0 || checkPyramidTrigger(schema, ctx)) pendingEntry = true;
+        if (lots.length === 0 || checkPyramidTrigger(schema, ctx)) {
+          pendingEntry = true;
+          if (latchDefs.length) clearLatches(latch);   // the arm is consumed by the entry
+        }
       }
     }
   }
@@ -455,11 +521,31 @@ function exitLot(lots, accounting) {
   return lots[0];
 }
 
+/*
+  entry.measureOn works the same way as the exit version: with 'high',
+  every reference to `close` inside the entry conditions is read from the
+  day's high instead, so "day's high crosses the trigger price" is a
+  faithful translation rather than an approximation.
+*/
+function withMeasure(ctx, measureOn) {
+  if (!measureOn || measureOn === 'close') return ctx;
+  const src = measureOn === 'low' ? 'l' : 'h';
+  const swap = (c) => ({
+    ...c,
+    bars: { ...c.bars, c: c.bars[src] },
+  });
+  const out = swap(ctx);
+  out.prev = swap(ctx.prev);
+  out.latch = ctx.latch;
+  return out;
+}
+
 function evalCondition(block, ctx) {
   if (!block) return false;
   const conds = block.conditions || [];
   if (!conds.length) return false;
-  const results = conds.map(c => truthy(evalExpr(c, ctx)));
+  const c2 = withMeasure(ctx, block.measureOn);
+  const results = conds.map(c => truthy(evalExpr(c, c2)));
   return (block.join || 'ALL') === 'ANY' ? results.some(Boolean) : results.every(Boolean);
 }
 
@@ -470,21 +556,41 @@ function checkPyramidTrigger(schema, ctx) {
   return truthy(evalExpr(p.trigger, ctx));
 }
 
+/*
+  measureOn decides which price is tested against a target or stop.
+    'close' (default) — conservative: only a closing price counts
+    'high'            — a target is hit if the day's HIGH reached it
+    'low'             — a stop is hit if the day's LOW reached it
+    'highlow'         — both of the above
+
+  Sheets that say "buying when day's high crosses the trigger" are
+  measuring intraday, so testing them on close alone understates them.
+  Fills still happen at the NEXT bar's open, so this changes when a
+  signal fires, never how it is priced.
+*/
+function measurePrices(ex, bars, i) {
+  const m = ex.measureOn || 'close';
+  return {
+    up:   (m === 'high' || m === 'highlow') ? bars.h[i] : bars.c[i],
+    down: (m === 'low'  || m === 'highlow') ? bars.l[i] : bars.c[i],
+  };
+}
+
 function checkExit(schema, ctx, bars, i, lots) {
   const ex = schema.exit || {};
   const accounting = ex.accounting || 'FIFO';
   const L = exitLot(lots, accounting);
-  const price = bars.c[i];
+  const { up, down } = measurePrices(ex, bars, i);
 
-  if (ex.targetPct != null && price >= L.price * (1 + ex.targetPct / 100))
+  if (ex.targetPct != null && up >= L.price * (1 + ex.targetPct / 100))
     return { mode: ex.exitLotsAtOnce === false ? 'one' : 'all', accounting, reason: 'target' };
 
-  if (ex.stopPct != null && price <= L.price * (1 - ex.stopPct / 100))
+  if (ex.stopPct != null && down <= L.price * (1 - ex.stopPct / 100))
     return { mode: 'all', accounting, reason: 'stop' };
 
   if (ex.trailPct != null) {
     const peak = ctx.pos.peakPrice;
-    if (Number.isFinite(peak) && price <= peak * (1 - ex.trailPct / 100))
+    if (Number.isFinite(peak) && down <= peak * (1 - ex.trailPct / 100))
       return { mode: 'all', accounting, reason: 'trail' };
   }
 
