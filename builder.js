@@ -39,6 +39,7 @@ export function operandChoices(schema) {
 */
 
 export function rowToExpr(row) {
+  if (row.raw) return row.raw;
   const right = (row.factor != null && row.factor !== 1 && row.factor !== '')
     ? ['mult', row.right, Number(row.factor)]
     : coerce(row.right);
@@ -48,6 +49,10 @@ export function rowToExpr(row) {
 
 export function exprToRow(expr) {
   if (!Array.isArray(expr)) return { left: 'close', op: 'gt', right: String(expr ?? 0), factor: 1 };
+  /* armed_since is a two-step rule with no flat form representation — it is
+     carried through untouched so the simple builder cannot silently destroy it. */
+  if (expr[0] === 'armed_since' || expr[0] === 'bars_since_armed')
+    return { raw: expr };
   const [op, left, right, pct] = expr;
   const row = { left: String(left), op, factor: 1, pct: pct ?? 1 };
   if (Array.isArray(right) && right[0] === 'mult') {
@@ -79,9 +84,11 @@ export function schemaToForm(schema) {
     symbol: schema.symbol || '',
     indicators: (schema.indicators || []).map(i => ({ ...i })),
     entryJoin: schema.entry?.join || 'ALL',
+    entryMeasureOn: schema.entry?.measureOn || 'close',
     entryRows: (schema.entry?.conditions || []).map(exprToRow),
     exit: {
       accounting: schema.exit?.accounting || 'FIFO',
+      measureOn: schema.exit?.measureOn || 'close',
       targetPct: nz(schema.exit?.targetPct),
       stopPct: nz(schema.exit?.stopPct),
       trailPct: nz(schema.exit?.trailPct),
@@ -127,9 +134,13 @@ export function formToSchema(form) {
     }),
     entry: {
       join: form.entryJoin || 'ALL',
+      ...(form.entryMeasureOn && form.entryMeasureOn !== 'close' ? { measureOn: form.entryMeasureOn } : {}),
       conditions: (form.entryRows || []).map(rowToExpr),
     },
-    exit: { accounting: form.exit.accounting || 'FIFO' },
+    exit: {
+      accounting: form.exit.accounting || 'FIFO',
+      ...(form.exit.measureOn && form.exit.measureOn !== 'close' ? { measureOn: form.exit.measureOn } : {}),
+    },
     pyramiding: { enabled: !!form.pyramiding.enabled },
     sizing: {
       mode: form.sizing.mode,
