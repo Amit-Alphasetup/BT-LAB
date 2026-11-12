@@ -42,7 +42,8 @@
     <div class="section-body">
       <div class="row">
         <label class="field"><span>Symbol</span>
-          <input id="f-symbol" value="RELIANCE" autocapitalize="characters" spellcheck="false"></label>
+          <input id="f-symbol" value="NIFTYBEES" list="sym-list" autocapitalize="characters" spellcheck="false"></label>
+        <datalist id="sym-list"></datalist>
         <label class="field"><span>Strategy name</span>
           <input id="f-label" value="Moving-average stack breakout"></label>
       </div>
@@ -292,8 +293,8 @@
   <section class="section">
     <h2>Setup</h2>
     <div class="section-body">
-      <label class="field"><span>Symbols — comma separated, must be downloaded already</span>
-        <input id="pf-symbols" placeholder="RELIANCE, TCS, INFY"></label>
+      <label class="field"><span>Symbols — comma separated, from the official dataset</span>
+        <input id="pf-symbols" placeholder="NIFTYBEES, BANKBEES, GOLDBEES"></label>
       <div class="row">
         <label class="field"><span>Slots</span><input id="pf-slots" type="number" value="10" min="1"></label>
         <label class="field"><span>Capital ₹</span><input id="pf-capital" type="number" value="500000"></label>
@@ -350,14 +351,27 @@
 <!-- ============ DATA ============ -->
 <main id="screen-data" class="screen">
   <section class="section">
+    <h2>Official dataset <span class="hint">NSE end-of-day, checked and adjusted</span></h2>
+    <div class="section-body">
+      <label class="field"><span>Dataset address</span>
+        <input id="f-eod2-base" spellcheck="false" placeholder="https://amit-alphasetup.github.io/market-data/"></label>
+      <div class="btn-row"><button class="btn primary" id="btn-dataset">Reload dataset</button></div>
+      <div id="dataset-out"></div>
+    </div>
+  </section>
+  <section class="section">
     <h2>Storage</h2>
     <div class="section-body"><div id="storage-out"></div>
       <div class="btn-row"><button class="btn" id="btn-storage">Check</button></div>
     </div>
   </section>
   <section class="section">
-    <h2>Price history</h2>
+    <h2>Unofficial source <span class="hint">Yahoo — only for symbols the dataset lacks</span></h2>
     <div class="section-body">
+      <label class="field" style="display:flex;gap:9px;align-items:center">
+        <input type="checkbox" id="f-allow-unofficial" style="width:auto;margin:0">
+        <span style="margin:0;letter-spacing:.04em">Allow unofficial source (results are labelled)</span>
+      </label>
       <label class="field"><span>Worker URL</span>
         <input id="f-worker" placeholder="https://your-worker.workers.dev"></label>
       <div class="btn-row">
@@ -385,6 +399,7 @@
   Past performance does not indicate future returns.
 </div>
 
+<script src="eod2-client.js"></script>
 <script type="module" src="ui.js"></script>
 </body>
 </html>

@@ -22,8 +22,8 @@ export function loadRecord(symbol) {
     adj: null, splits: [], dividends: [], source: 'seed', lastDate: null, downloadedAt: null, flags: [] };
 }
 
-export function runOne(presetId, symbol) {
-  const res = runBacktest(loadRecord(symbol), getPreset(presetId), { raw: false });
+export function runOne(presetId, symbol, record) {
+  const res = runBacktest(record || loadRecord(symbol), getPreset(presetId), { raw: false });
   const stats = {}; for (const [k, v] of Object.entries(res.stats)) stats[k] = r6(v);
   return { preset: presetId, symbol, stats, skipped: res.skipped.length,
     trades: res.trades.map(t => [day(t.entryDate), r6(t.entryPrice), day(t.exitDate), r6(t.exitPrice), t.qty]) };

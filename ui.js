@@ -9,10 +9,11 @@ import * as CH from './chart.js';
 import * as RP from './report.js';
 import * as ST from './studio.js';
 import * as PF from './portfolio.js';
+import * as SRC from './source.js';
 
 const $ = id => document.getElementById(id);
 let form = B.schemaToForm(B.getPreset('ma_stack'));
-if (!form.symbol) form.symbol = 'RELIANCE';   // UI default only; schema stays symbol-free
+if (!form.symbol) form.symbol = 'NIFTYBEES';   // UI default only; schema stays symbol-free
 let rawMode = false;
 
 /* ---------------- tabs ---------------- */
@@ -313,6 +314,48 @@ $('json-load').addEventListener('click', () => {
 
 /* ---------------- data tab ---------------- */
 
+/* Official dataset first; an imported file second; Yahoo only when the box is ticked. */
+const BASE_KEY = 'btlab_eod2_base', UNOFF_KEY = 'btlab_allow_unofficial';
+$('f-eod2-base').value = localStorage.getItem(BASE_KEY) || SRC.DEFAULT_BASE_URL;
+$('f-allow-unofficial').checked = localStorage.getItem(UNOFF_KEY) === '1';
+$('f-allow-unofficial').addEventListener('change', e => localStorage.setItem(UNOFF_KEY, e.target.checked ? '1' : '0'));
+
+async function openDataset() {
+  const base = $('f-eod2-base').value.trim() || SRC.DEFAULT_BASE_URL;
+  $('dataset-out').innerHTML = kv([['status', 'loading dataset…']]);
+  const info = await SRC.openDataset(base);
+  $('dataset-out').innerHTML = SRC.datasetHTML();
+  $('sym-list').innerHTML = ['ETF', 'INDEX', 'EQ'].flatMap(k => SRC.listSymbols(k).map(s => `<option value="${esc(s)}" label="${k}"></option>`)).join('');
+  $('doc-data').textContent = info.ok ? `DATASET ${info.datasetId} · TO ${info.latestSession}` : 'DATA — DATASET NOT LOADED';
+  return info;
+}
+let datasetReady = null;
+$('btn-dataset').addEventListener('click', () => { datasetReady = openDataset(); });
+$('f-eod2-base').addEventListener('change', e => { localStorage.setItem(BASE_KEY, e.target.value.trim()); datasetReady = openDataset(); });
+
+async function fetchUnofficial(sym) {
+  const worker = $('f-worker').value.trim();
+  const json = worker
+    ? await (await fetch(`${worker.replace(/\/+$/, '')}/yf?symbol=${encodeURIComponent(sym)}&range=25y`)).json()
+    : await D.fetchYahoo(sym);
+  if (json.error) throw new Error(json.error);
+  const { rows, splits, dividends } = D.parseYahoo(json);
+  let rec = (await D.loadRecord(sym)) || D.emptyRecord(sym);
+  rec.splits = splits; rec.dividends = dividends;
+  rec = D.mergeRows(rec, rows, worker ? 'worker' : 'yahoo');
+  D.buildAdjusted(rec);
+  const anom = D.detectAnomalies(rec);
+  rec.flags = anom.length ? ['CA_ANOMALY'] : []; rec.anomalies = anom;
+  await D.saveRecord(rec);
+  return rec;
+}
+
+async function loadData(sym) {
+  await datasetReady;
+  return SRC.loadBars(sym, { loadRecord: D.loadRecord, fetchUnofficial, allowUnofficial: $('f-allow-unofficial').checked });
+}
+const noDataMsg = (sym, got) => `No price data for ${sym} (${got.reasons.join(', ') || 'not found'}). It is not in the official dataset — import a CSV on the Data tab, or tick "allow unofficial source".`;
+
 const WORKER_KEY = 'btlab_worker_url';
 $('f-worker').value = localStorage.getItem(WORKER_KEY) || '';
 $('f-worker').addEventListener('change', e => localStorage.setItem(WORKER_KEY, e.target.value.trim()));
@@ -330,21 +373,14 @@ $('btn-storage').addEventListener('click', async () => {
 $('btn-fetch').addEventListener('click', async () => {
   const sym = form.symbol;
   const worker = $('f-worker').value.trim();
-  $('data-out').innerHTML = kv([['status', 'downloading ' + sym + '…']]);
+  if (!$('f-allow-unofficial').checked) {
+    $('data-out').innerHTML = kv([['not downloaded', 'tick "allow unofficial source" first', 'warn']]);
+    return;
+  }
+  $('data-out').innerHTML = kv([['status', 'downloading ' + sym + ' from Yahoo…']]);
   try {
-    const json = worker
-      ? await (await fetch(`${worker.replace(/\/+$/, '')}/yf?symbol=${encodeURIComponent(sym)}&range=25y`)).json()
-      : await D.fetchYahoo(sym);
-    if (json.error) throw new Error(json.error);
-    const { rows, splits, dividends } = D.parseYahoo(json);
-    let rec = (await D.loadRecord(sym)) || D.emptyRecord(sym);
-    rec.splits = splits; rec.dividends = dividends;
-    rec = D.mergeRows(rec, rows, worker ? 'worker' : 'yahoo');
-    D.buildAdjusted(rec);
-    const anom = D.detectAnomalies(rec);
-    rec.flags = anom.length ? ['CA_ANOMALY'] : []; rec.anomalies = anom;
-    await D.saveRecord(rec);
-    showRecord(rec, anom);
+    const rec = await fetchUnofficial(sym);
+    showRecord(rec, rec.anomalies || []);
   } catch (e) {
     $('data-out').innerHTML = kv([
       ['error', esc(e.message), 'bad'],
@@ -362,6 +398,7 @@ $('btn-cached').addEventListener('click', async () => {
 function showRecord(rec, anom) {
   const stale = D.tradingDaysStale(rec.lastDate);
   $('data-out').innerHTML = kv([
+    ['source', rec.source === 'yahoo' || rec.source === 'worker' ? SRC.SOURCE_LABEL.YAHOO : SRC.SOURCE_LABEL.CSV, 'warn'],
     ['bars', rec.t.length, 'ok'],
     ['first', day(rec.t[0])],
     ['last', day(rec.lastDate)],
@@ -370,7 +407,6 @@ function showRecord(rec, anom) {
     ['unexplained jumps', anom.length, anom.length ? 'warn' : 'ok'],
     ['freshness', stale <= 3 ? 'current' : stale + ' trading days behind', stale <= 3 ? 'ok' : 'warn'],
   ]);
-  $('doc-data').textContent = `DATA TO ${day(rec.lastDate)}`;
 }
 
 $('btn-csv').addEventListener('click', () => $('file-csv').click());
@@ -406,22 +442,22 @@ let chartApi = null, replay = null, lastRun = null;
 $('btn-run').addEventListener('click', async () => {
   const { schema, errs } = renderValidation();
   if (errs.length) return;
-  const rec = await D.loadRecord(form.symbol);
-  if (!rec || !rec.t.length) {
-    toast('No price data for ' + form.symbol + ' — download it on the Data tab first.', true);
-    return;
-  }
+  const got = await loadData(form.symbol);
+  const rec = got.bars;
+  if (!rec || !rec.t.length) { toast(noDataMsg(form.symbol, got), true); return; }
   const { runBacktest, computeIndicators } = await import('./engine.js');
   const t0 = performance.now();
   const res = runBacktest(rec, schema, { raw: rawMode });
   res.indicators = computeIndicators(rec.adj ? { ...rec, ...rec.adj, vol: rec.vol } : rec, schema);
   res.bars = rec;
+  res.dataSource = { source: got.source, datasetId: got.datasetId, status: got.status, reasons: got.reasons, tag: SRC.sourceTag(got) };
+  $('doc-data').textContent = `${res.dataSource.tag.toUpperCase()} · TO ${day(rec.lastDate)}`;
   const ms = (performance.now() - t0).toFixed(0);
   lastRun = res;
   window.__lastResult = res;
 
   const s = res.stats;
-  toast(`${res.trades.length} trades · net ₹${Math.round(s.netPnl).toLocaleString('en-IN')} · CAGR ${s.cagr.toFixed(1)}% · ${ms}ms`);
+  toast(`${res.trades.length} trades · net ₹${Math.round(s.netPnl).toLocaleString('en-IN')} · CAGR ${s.cagr.toFixed(1)}% · ${res.dataSource.tag} · ${ms}ms`, got.source === 'YAHOO');
 
   document.querySelector('.tab[data-screen="chart"]').click();
   await renderChart(res, rec, schema);
@@ -436,7 +472,7 @@ async function renderChart(res, bars, schema) {
   if (chartApi) chartApi.destroy();
 
   chartApi = await CH.createChart($('chart-host'), { height: 380 });
-  $('chart-engine').textContent = chartApi.kind === 'lwc' ? '' : 'built-in renderer';
+  $('chart-engine').textContent = [res.dataSource?.tag, chartApi.kind === 'lwc' ? '' : 'built-in renderer'].filter(Boolean).join(' · ');
 
   chartApi.setData(bars, res.indicators, Infinity);
   chartApi.setMarkers(res.trades, bars, Infinity);
@@ -483,7 +519,7 @@ function paintReport() {
 
   const rep = RP.buildReport(active, bh);
   $('rep-title').textContent = (schema.symbol || form.symbol) + ' · ' + (schema.label || '');
-  $('rep-period').textContent = rep.period;
+  $('rep-period').textContent = rep.period + (reportState.res.dataSource ? ' · data: ' + reportState.res.dataSource.tag : '');
 
   $('rep-headline').innerHTML = rep.headline.map(c => `
     <div class="headline-cell">
@@ -611,13 +647,15 @@ $('pf-run').addEventListener('click', async () => {
   $('pf-status').innerHTML = kv([['status', 'loading ' + syms.length + ' symbols…']]);
   const records = {};
   const missing = [];
+  const srcCount = {};
   for (const sym of syms) {
-    const rec = await D.loadRecord(sym);
-    if (rec && rec.t.length) records[sym] = rec; else missing.push(sym);
+    const got = await loadData(sym);
+    if (got.bars && got.bars.t.length) { records[sym] = got.bars; srcCount[SRC.sourceTag(got)] = (srcCount[SRC.sourceTag(got)] || 0) + 1; }
+    else missing.push(sym);
   }
   if (missing.length) {
-    $('pf-status').innerHTML = kv([['not downloaded', missing.join(', '), 'bad'],
-      ['fix', 'download these on the Data tab first', 'warn']]);
+    $('pf-status').innerHTML = kv([['no data', missing.join(', '), 'bad'],
+      ['fix', 'not in the official dataset — import a CSV on the Data tab', 'warn']]);
     if (!Object.keys(records).length) return;
   }
 
@@ -633,6 +671,7 @@ $('pf-run').addEventListener('click', async () => {
 
   $('pf-status').innerHTML = kv([
     ['symbols', Object.keys(records).length, 'ok'],
+    ['data', Object.entries(srcCount).map(([k, n]) => `${esc(k)} × ${n}`).join(', '), Object.keys(srcCount).some(k => !k.startsWith(SRC.SOURCE_LABEL.EOD2)) ? 'warn' : 'ok'],
     ['trades', res.trades.length],
     ['run time', ms + ' ms'],
     ['book balances', chk.ok ? 'yes' : 'NO — see console', chk.ok ? 'ok' : 'bad'],
@@ -757,4 +796,5 @@ function toast(msg, bad) {
 renderAll();
 setRaw(false);
 $('btn-storage').click();
-window.__btlab = { get form() { return form; }, B, D };
+datasetReady = openDataset();
+window.__btlab = { get form() { return form; }, B, D, SRC, get datasetReady() { return datasetReady; } };
