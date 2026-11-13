@@ -9,6 +9,7 @@ import * as CH from './chart.js';
 import * as RP from './report.js';
 import * as ST from './studio.js';
 import * as PF from './portfolio.js';
+import * as BD from './presets-btdesk.js';
 import * as SRC from './source.js';
 
 const $ = id => document.getElementById(id);
@@ -440,16 +441,44 @@ $('file-csv').addEventListener('change', async (e) => {
 
 let chartApi = null, replay = null, lastRun = null;
 
+/* BT/DESK dashboard strategies: fixed rules (presets-btdesk.js), every fill through the order model */
+$('f-btdesk').innerHTML += BD.BTDESK_PRESETS.map(p => `<option value="${p.id}">${esc(p.label)}</option>`).join('');
+$('f-btdesk').addEventListener('change', e => {
+  const p = BD.getBtdeskPreset(e.target.value);
+  $('btdesk-params').style.display = p ? '' : 'none';
+  $('btdesk-note').style.display = p ? '' : 'none';
+  if (p) $('btdesk-note').textContent = `${p.note} Buys: ${p.entryOrder.replace('_', ' ')}. Sells: resting limit order at the target; a gap above it fills at the open.`;
+});
+function btdeskRun(rec, id, raw) {
+  const params = { perTxAmount: Number($('f-bd-pertx').value) || 5000, maxBuys: Number($('f-bd-maxbuys').value) || 5 };
+  const res = BD.runBtdesk(rec, id, params, { raw });
+  const p = BD.getBtdeskPreset(id);
+  res.btdesk = { id, params };
+  res.schema = { schemaVersion: 2, id: 'btdesk_' + id, label: p.label, note: p.note, symbol: rec.symbol, indicators: [],
+    sizing: { mode: 'fixed', value: params.perTxAmount, capital: res.meta.capital }, costs: { preset: 'zerodha_delivery' } };
+  return res;
+}
+
 $('btn-run').addEventListener('click', async () => {
-  const { schema, errs } = renderValidation();
-  if (errs.length) return;
+  const bdId = $('f-btdesk').value;
+  let { schema, errs } = renderValidation();
+  if (errs.length && !bdId) return;
   const got = await loadData(form.symbol);
   const rec = got.bars;
   if (!rec || !rec.t.length) { toast(noDataMsg(form.symbol, got), true); return; }
-  const { runBacktest, computeIndicators } = await import('./engine.js');
+  const { runBacktest, computeIndicators, checkInvariants } = await import('./engine.js');
   const t0 = performance.now();
-  const res = runBacktest(rec, schema, { raw: rawMode });
-  res.indicators = computeIndicators(rec.adj ? { ...rec, ...rec.adj, vol: rec.vol } : rec, schema);
+  let res;
+  if (bdId) {
+    res = btdeskRun(rec, bdId, rawMode);
+    if (!res.ok) { toast(res.reason, true); return; }
+    schema = res.schema; res.indicators = {};
+  } else {
+    res = runBacktest(rec, schema, { raw: rawMode });
+    res.indicators = computeIndicators(rec.adj ? { ...rec, ...rec.adj, vol: rec.vol } : rec, schema);
+    res.invariants = checkInvariants(res, rec);
+  }
+  if (!res.invariants.ok) console.warn('run invariants failed', res.invariants.problems);
   res.bars = rec;
   res.dataSource = { source: got.source, datasetId: got.datasetId, status: got.status, reasons: got.reasons, tag: SRC.sourceTag(got) };
   $('doc-data').textContent = `${res.dataSource.tag.toUpperCase()} · TO ${day(rec.lastDate)}`;
@@ -500,7 +529,7 @@ async function buildReportTab(res, bars, schema) {
   const { runBacktest, buyAndHold, COST_PRESETS } = await import('./engine.js');
   const preset = COST_PRESETS[schema.costs?.preset] || COST_PRESETS.zerodha_delivery;
   const bh = buyAndHold(bars, schema.sizing?.capital ?? 100000, res.meta.raw ? COST_PRESETS.none : preset);
-  const other = runBacktest(bars, schema, { raw: !res.meta.raw });
+  const other = res.btdesk ? btdeskRun(bars, res.btdesk.id, !res.meta.raw) : runBacktest(bars, schema, { raw: !res.meta.raw });
   other.bars = bars;
   reportState = { res, other, bh, bars, schema, showingRaw: !!res.meta.raw };
   paintReport();

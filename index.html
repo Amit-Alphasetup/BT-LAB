@@ -49,6 +49,13 @@
       </div>
       <label class="field"><span>How it works — shown on screen in videos</span>
         <input id="f-note" placeholder="One line describing the rule"></label>
+      <label class="field"><span>Dashboard strategy (BT/DESK rules, honest fills) — overrides the rules below when chosen</span>
+        <select id="f-btdesk"><option value="">— none: use the rules built below —</option></select></label>
+      <div class="row" id="btdesk-params" style="display:none">
+        <label class="field"><span>₹ per buy</span><input id="f-bd-pertx" type="number" value="5000" min="1"></label>
+        <label class="field"><span>Max buys</span><input id="f-bd-maxbuys" type="number" value="5" min="1"></label>
+      </div>
+      <div class="notice" id="btdesk-note" style="display:none"></div>
     </div>
   </section>
 

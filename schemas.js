@@ -4,7 +4,24 @@
    attributed to a person. MASTER PLAN v2.0 B6.
    ============================================================ */
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
+export const ORDER_TYPES = ['market_open', 'at_close', 'stop_buy', 'limit_buy', 'limit_sell', 'stop_sell'];
+
+/* v1 -> v2: v1 strategies signalled on the close and filled at the next open, with no exit on the fill bar. In v2 that is spelled out:
+   entry.order / exit.order = market_open, sameBarExit = never. Results are identical (golden tests). */
+export function migrate(raw) {
+  if (!raw || typeof raw !== 'object') throw new Error('Not a strategy file.');
+  const v = raw.schemaVersion == null ? 1 : raw.schemaVersion;
+  if (v > SCHEMA_VERSION) throw new Error(`This strategy was made in a newer version (v${v}). Update the app to open it.`);
+  if (v !== 1 && v !== 2) throw new Error(`Cannot read schema version ${v}.`);
+  const s = JSON.parse(JSON.stringify(raw));
+  s.schemaVersion = SCHEMA_VERSION;
+  if (s.entry && !s.entry.order) s.entry.order = { type: 'market_open' };
+  if (s.exit && !s.exit.order) s.exit.order = { type: 'market_open' };
+  if (s.pyramiding && s.pyramiding.enabled && !s.pyramiding.order) s.pyramiding.order = { type: 'market_open' };
+  if (!s.sameBarExit) s.sameBarExit = 'never';
+  return s;
+}
 
 const baseSizing = { mode: 'fixed', value: 20000, capital: 100000, compounds: true };
 const baseCosts  = { preset: 'zerodha_delivery', slippageBps: 5, gapAware: true, gapFactor: 10, volumeCapPct: 2 };
@@ -126,7 +143,7 @@ export const PRESETS = [
   {
     schemaVersion: 1,
     id: 'smart_averaging',
-    label: 'Averaging-down grid',
+    label: 'Averaging-down grid (v1 approximation)',
     note: 'Buy the first dip, add a lot on every further fall, exit each lot at a fixed profit (LIFO).',
     indicators: [
       { key: 'sma20', type: 'SMA', source: 'close', period: 20 },
@@ -139,7 +156,7 @@ export const PRESETS = [
   {
     schemaVersion: 1,
     id: 'sst_v1',
-    label: 'Swing trading — 20-day-high breakout, target on average',
+    label: 'Swing trading — 20-day-high breakout, target on average (v1 approximation)',
     note: "Day's high crosses the 20-day high; average down on further signals; sell everything when the average price is up 6.28%.",
     indicators: [
       { key: 'hh20', type: 'HIGHEST', source: 'high', period: 20 },
@@ -156,7 +173,7 @@ export const PRESETS = [
   {
     schemaVersion: 1,
     id: 'sst_2_lifo',
-    label: 'Swing trading 2.0 — armed at the 20-day low, LIFO exits',
+    label: 'Swing trading 2.0 — armed at the 20-day low, LIFO exits (v1 approximation)',
     note: 'A stock arms when it touches its 20-day low, then buys when it breaks the 20-day high. Each lot sells on its own +6%, newest first.',
     indicators: [
       { key: 'hh20', type: 'HIGHEST', source: 'high', period: 20 },
@@ -235,7 +252,7 @@ export const PRESETS = [
 
 export function getPreset(id) {
   const p = PRESETS.find(x => x.id === id);
-  return p ? JSON.parse(JSON.stringify(p)) : null;
+  return p ? migrate(p) : null;
 }
 
 /* ---------- validation ---------- */
@@ -260,6 +277,16 @@ export function validateSchema(schema) {
   }
 
   const ex = schema.exit || {};
+  for (const [where, od, okTypes] of [['entry', schema.entry?.order, ['market_open', 'at_close', 'stop_buy', 'limit_buy']],
+    ['add', schema.pyramiding?.order, ['market_open', 'at_close', 'stop_buy', 'limit_buy']], ['exit', ex.order, ['market_open', 'limit_sell']],
+    ['stop', ex.stopOrder, ['stop_sell']]]) {
+    if (!od) continue;
+    if (!okTypes.includes(od.type)) errs.push(`${where} order type "${od.type}" is not allowed here (${okTypes.join(', ')})`);
+    if ((od.type === 'stop_buy' || od.type === 'limit_buy') && od.level == null) errs.push(`${where} order ${od.type} needs a price level`);
+  }
+  if (ex.order?.type === 'limit_sell' && ex.targetPct == null) errs.push('a limit-sell exit needs a target %');
+  if (ex.stopOrder && ex.stopPct == null) errs.push('a stop order needs a stop %');
+  if (schema.sameBarExit && !['never', 'open_fill_only'].includes(schema.sameBarExit)) errs.push('sameBarExit must be "never" or "open_fill_only"');
   if (ex.targetPct != null && ex.targetPct <= 0) errs.push('target % must be greater than 0');
   if (ex.stopPct != null && ex.stopPct <= 0) errs.push('stop % must be greater than 0');
   if (ex.targetPct != null && ex.stopPct != null && ex.stopPct >= ex.targetPct)

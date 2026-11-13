@@ -182,5 +182,7 @@ export function publishCheck(result, { lagDays = 90, now = Date.now() } = {}) {
     problems.push('This result is in RAW mode. Show the real number alongside it, or the video overstates the strategy.');
   if (!result.stats.trades)
     problems.push('No trades were taken, so there is no performance to show.');
+  if (result.invariants && !result.invariants.ok)
+    problems.push('This run failed its own checks (' + result.invariants.problems[0] + '). It cannot be published.');
   return { ok: problems.length === 0, problems, lastDate, ageDays };
 }

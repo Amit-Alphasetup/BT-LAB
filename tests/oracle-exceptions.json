@@ -1,0 +1,12 @@
+[
+  { "preset": "*", "rule": "target_gap_up_fills_at_open",
+    "reason": "The sheet books every target sale exactly at the target. When the day OPENS above the target, a resting limit sell fills at the open: a sale at the lower target price is impossible on that bar's first trade, so the honest fill is max(target, open)." },
+  { "preset": "sst", "rule": "buy_stop_gap_up_fills_at_open",
+    "reason": "The sheet books the breakout buy at the previous 20-day high even when the day opened above it. A buy stop cannot fill below the open (that price never traded after the trigger), so the honest fill is max(level, open)." },
+  { "preset": "sstlifo", "rule": "buy_stop_gap_up_fills_at_open",
+    "reason": "Same buy-stop rule; the dashboard's SST 2.0 already books max(level, open), so nothing changes here. Listed because the fill is not at the level: a fill at the level is impossible when the open is above it." },
+  { "preset": "smartavg", "rule": "midpoint_buy_becomes_close",
+    "reason": "The sheet buys at (high + low) / 2 of the signal day. That mid-point is not a tradable price: it is only known after the close and may never have traded. The honest preset buys at the close of the signal day." },
+  { "preset": "*", "rule": "target_touch_counts",
+    "reason": "The sheet needs High strictly above the target. A limit sell resting at the target fills when the price touches it; requiring a higher print is impossible to enforce on an exchange, so High >= target fills." }
+]

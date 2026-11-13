@@ -4,7 +4,7 @@
    ============================================================ */
 
 import { INDICATORS } from './engine.js';
-import { PRESETS, getPreset, validateSchema, SCHEMA_VERSION } from './schemas.js';
+import { PRESETS, getPreset, validateSchema, SCHEMA_VERSION, migrate } from './schemas.js';
 
 const LIB_KEY = 'btlab_library_v1';
 
@@ -109,6 +109,9 @@ export function schemaToForm(schema) {
       capital: schema.sizing?.capital ?? 100000,
       compounds: schema.sizing?.compounds !== false,
     },
+    // v2 order model: carried through the form untouched (no form controls yet), so opening and saving a strategy never loses it
+    orders: { entry: schema.entry?.order || { type: 'market_open' }, add: schema.pyramiding?.order || null, exit: schema.exit?.order || { type: 'market_open' },
+      stop: schema.exit?.stopOrder || null, sameBarExit: schema.sameBarExit || 'never' },
     costs: {
       preset: schema.costs?.preset || 'zerodha_delivery',
       slippageBps: schema.costs?.slippageBps ?? 5,
@@ -169,6 +172,12 @@ export function formToSchema(form) {
     schema.pyramiding.maxLots = Number(form.pyramiding.maxLots);
     schema.pyramiding.trigger = rowToExpr(form.pyramiding.triggerRow);
   }
+  const od = form.orders || {};
+  schema.entry.order = od.entry || { type: 'market_open' };
+  schema.exit.order = od.exit || { type: 'market_open' };
+  if (od.stop) schema.exit.stopOrder = od.stop;
+  if (form.pyramiding.enabled) schema.pyramiding.order = od.add || { type: 'market_open' };
+  schema.sameBarExit = od.sameBarExit || 'never';
   if (!schema.symbol) delete schema.symbol;
   return schema;
 }
@@ -220,13 +229,7 @@ export function allStrategies() {
 export function migrateSchema(raw) {
   if (!raw || typeof raw !== 'object') throw new Error('Not a strategy file.');
   if (raw.schemaVersion === SCHEMA_VERSION) return raw;
-  if (raw.schemaVersion == null) {
-    // pre-versioning file: assume v1 shape, tag it
-    return { ...raw, schemaVersion: SCHEMA_VERSION };
-  }
-  if (raw.schemaVersion > SCHEMA_VERSION)
-    throw new Error(`This strategy was made in a newer version (v${raw.schemaVersion}). Update the app to open it.`);
-  throw new Error(`Cannot read schema version ${raw.schemaVersion}.`);
+  return migrate(raw);          // v1 (or pre-versioning) -> v2: market_open orders, no exit on the fill bar; newer versions are refused
 }
 
 /* ---------- round-trip check (used by Gate 3) ---------- */

@@ -4,7 +4,9 @@
    MASTER PLAN v2.0 Part C Phase 2.
    ============================================================ */
 
-export const SCHEMA_VERSION = 1;
+import { fillPrice, canExitOnFillBar, resolveExit, insideBar, ORDER_TYPES } from './fills.js';
+
+export const SCHEMA_VERSION = 2;
 
 /* ================= INDICATORS ================= */
 /* All take Float64Array in, return Float64Array of same length, NaN during warmup. */
@@ -388,11 +390,17 @@ export function slippedPrice(side, fillPrice, prevClose, cfg = {}) {
 
 /* ================= BACKTEST ENGINE ================= */
 /*
-  bars: {t,o,h,l,c,vol} Float64Arrays (as-traded)  + optional adj:{o,h,l,c}
-  schema: strategy definition
+  bars: {t,o,h,l,c,vol} Float64Arrays + optional adj:{o,h,l,c}
+  schema: strategy definition (v2)
   Rules baked in:
-   - conditions evaluate on bar CLOSE using adjusted scale
-   - fills execute NEXT BAR OPEN using as-traded prices  (no look-ahead)
+   - ONE price scale: indicators, fills, marking and targets all use the adjusted prices (bars.adj when present)
+   - conditions evaluate on bar CLOSE; every fill goes through the order model (fills.js):
+       entry.order / pyramiding.order : market_open (default, next bar's open) | at_close (the signal bar's close)
+                                        | stop_buy / limit_buy with a `level` expression (valid for the next bar only)
+       exit.order                     : market_open (default) | limit_sell = the target % rests as a limit order
+       exit.stopOrder                 : stop_sell = the stop % rests as a stop order
+   - a lot filled on a bar cannot exit on that bar unless schema.sameBarExit = 'open_fill_only' and it filled at the open
+   - target and stop both reachable on one bar: the stop is assumed first (counted in meta.bothReachable)
    - exits are checked before entries on each bar
 */
 
@@ -409,6 +417,16 @@ export function runBacktest(bars, schema, options = {}) {
     ? { o: bars.adj.o, h: bars.adj.h, l: bars.adj.l, c: bars.adj.c, vol: bars.vol }
     : bars;
   const ind = computeIndicators(indBars, schema);
+  const P = indBars;                                    // the one scale used for fills and marking
+  const barAt = (i) => ({ o: P.o[i], h: P.h[i], l: P.l[i], c: P.c[i] });
+  const entryOrder = schema.entry?.order || { type: 'market_open' };
+  const addOrder = schema.pyramiding?.order || entryOrder;
+  const exitOrder = schema.exit?.order || { type: 'market_open' };
+  const restTarget = exitOrder.type === 'limit_sell' && schema.exit?.targetPct != null;
+  const restStop = schema.exit?.stopOrder?.type === 'stop_sell' && schema.exit?.stopPct != null;
+  const sameBar = schema.sameBarExit || 'never';
+  const fills = [];
+  let bothReachable = 0;
 
   const startIdx = warmupBars(schema);
   const latchDefs = schemaLatches(schema);
@@ -427,36 +445,69 @@ export function runBacktest(bars, schema, options = {}) {
   for (let i = startIdx; i < n; i++) {
     if (bars.t[i] > dataAsOf) break;
 
-    const prevClose = i > 0 ? bars.c[i - 1] : NaN;
-
-    /* ---- fills from signals raised on the previous bar's close ---- */
-    if (pendingExit) {
-      const px = slippedPrice('sell', bars.o[i], prevClose, schema.costs);
-      cash += closeLots(lots, pendingExit, px, i, bars, trades, costPreset, pendingExit.reason);
-      pendingExit = null;
-    }
-    if (pendingEntry) {
-      const px = slippedPrice('buy', bars.o[i], prevClose, schema.costs);
+    const prevClose = i > 0 ? P.c[i - 1] : NaN;
+    const bar = barAt(i);
+    const buy = (raw, type) => {                        // one place where a buy becomes a lot
+      const px = slippedPrice('buy', raw, prevClose, schema.costs);
       const qty = sizeOrder(cash, px, schema, bars, i, lots.length);
       if (qty > 0) {
         const c = tradeCost('buy', px, qty, costPreset);
         const outlay = px * qty + c.total;
         if (outlay <= cash) {
           cash -= outlay;
-          lots.push({ qty, price: px, tIdx: i, cost: c.total, peak: px });
+          lots.push({ qty, price: px, tIdx: i, cost: c.total, peak: px, raw });
+          fills.push({ i, side: 'buy', type, raw, price: px, qty });
         } else {
           skipped.push({ tIdx: i, reason: 'insufficient_cash' });
         }
       } else {
         skipped.push({ tIdx: i, reason: 'volume_cap_or_size_zero' });
       }
+    };
+    const sell = (spec, raw, type) => {
+      const px = slippedPrice('sell', raw, prevClose, schema.costs);
+      const before = trades.length;
+      cash += closeLots(lots, spec, px, i, bars, trades, costPreset, spec.reason);
+      for (let k = before; k < trades.length; k++) fills.push({ i, side: 'sell', type, raw, price: px, qty: trades[k].qty, entryIdx: trades[k].entryIdx });
+    };
+
+    /* ---- fills from signals raised on the previous bar's close ---- */
+    if (pendingExit) {
+      sell(pendingExit, fillPrice({ type: 'market_open' }, bar), 'market_open');
+      pendingExit = null;
+    }
+    if (pendingEntry) {
+      const raw = fillPrice(pendingEntry, bar);
+      if (raw == null) skipped.push({ tIdx: i, reason: 'order_not_filled' });
+      else buy(raw, pendingEntry.type);
       pendingEntry = false;
     }
 
+    /* ---- resting exit orders (target as a limit sell, stop as a stop sell) ---- */
+    if (lots.length && (restTarget || restStop)) {
+      const ex = schema.exit, acc = ex.accounting || 'FIFO';
+      let guard = lots.length + 1;
+      while (lots.length && guard-- > 0) {
+        const L = exitLot(lots, acc);
+        if (L.tIdx === i && !canExitOnFillBar(L.raw, bar, sameBar)) break;
+        const tLevel = restTarget ? L.price * (1 + ex.targetPct / 100) : null, sLevel = restStop ? L.price * (1 - ex.stopPct / 100) : null;
+        const hit = resolveExit(tLevel, sLevel, bar);
+        if (!hit) break;
+        if (tLevel != null && sLevel != null && bar.h >= tLevel && bar.l <= sLevel) bothReachable++;
+        const type = hit === 'stop' ? 'stop_sell' : 'limit_sell';
+        const one = hit === 'target' && ex.exitLotsAtOnce === false;
+        sell({ mode: one ? 'one' : 'all', accounting: acc, reason: hit }, fillPrice({ type, level: hit === 'stop' ? sLevel : tLevel }, bar), type);
+        if (!one) break;
+      }
+    }
+
     /* ---- mark equity on this bar's close ---- */
-    let posVal = 0;
-    for (const L of lots) { posVal += L.qty * bars.c[i]; if (bars.c[i] > L.peak) L.peak = bars.c[i]; }
-    equity[i] = cash + posVal;
+    const mark = () => {
+      let posVal = 0;
+      for (const L of lots) { posVal += L.qty * P.c[i]; if (P.c[i] > L.peak) L.peak = P.c[i]; }
+      equity[i] = cash + posVal;
+    };
+    mark();
 
     /* ---- evaluate signals on this close (fill next open) ---- */
     const pos = positionCtx(lots, bars, i);
@@ -464,7 +515,7 @@ export function runBacktest(bars, schema, options = {}) {
     if (latchDefs.length) stepLatches(latch, latchDefs, ctx);
 
     if (lots.length) {
-      const ex = checkExit(schema, ctx, bars, i, lots);
+      const ex = checkExit(schema, ctx, P, i, lots, restTarget, restStop);
       if (ex) pendingExit = ex;
     }
     if (!pendingExit) {
@@ -473,7 +524,9 @@ export function runBacktest(bars, schema, options = {}) {
         : (schema.pyramiding?.enabled && lots.length < (schema.pyramiding.maxLots ?? 1));
       if (canAdd && evalCondition(schema.entry, ctx)) {
         if (lots.length === 0 || checkPyramidTrigger(schema, ctx)) {
-          pendingEntry = true;
+          const od = lots.length === 0 ? entryOrder : addOrder;
+          if (od.type === 'at_close') { buy(fillPrice(od, bar), 'at_close'); mark(); }      // fills on the signal bar itself
+          else pendingEntry = { type: od.type, level: od.level == null ? undefined : evalExpr(od.level, ctx) };
           if (latchDefs.length) clearLatches(latch);   // the arm is consumed by the entry
         }
       }
@@ -483,13 +536,49 @@ export function runBacktest(bars, schema, options = {}) {
   /* close any open position at the last bar's close (mark-to-market exit) */
   if (lots.length) {
     const i = lastValidIdx(bars, dataAsOf);
-    cash += closeLots(lots, { mode: 'all' }, bars.c[i], i, bars, trades, costPreset, 'end_of_data');
+    cash += closeLots(lots, { mode: 'all' }, P.c[i], i, bars, trades, costPreset, 'end_of_data');
     equity[i] = cash;
   }
 
   forwardFill(equity);
-  return { schema, meta: metaOf(bars, schema, costPreset, options), trades, equity, skipped,
+  const meta = metaOf(bars, schema, costPreset, options);
+  meta.bothReachable = bothReachable;
+  meta.asTradedLast = bars.c[n - 1];                    // display only: the latest as-traded close (equals the adjusted close on EOD2 data)
+  return { schema, meta, trades, equity, skipped, fills,
            stats: computeStats(trades, equity, bars, cap0) };
+}
+
+/* Invariants of a run (PLAN section 7). -> {ok, problems}. A failed invariant blocks Studio export. */
+export function checkInvariants(res, bars) {
+  const P = bars.adj ? { o: bars.adj.o, h: bars.adj.h, l: bars.adj.l, c: bars.adj.c } : bars, problems = [];
+  const policy = res.schema?.sameBarExit || 'never';
+  for (const f of (res.fills || [])) {
+    const b = { o: P.o[f.i], h: P.h[f.i], l: P.l[f.i], c: P.c[f.i] };
+    if (!ORDER_TYPES.includes(f.type)) problems.push('unknown order type ' + f.type);
+    if (!insideBar(f.raw, b)) problems.push(`fill ${f.raw} outside the bar's low-high on bar ${f.i}`);
+    if (f.side === 'sell' && f.entryIdx === f.i) {
+      const e = (res.fills || []).find(x => x.side === 'buy' && x.i === f.i);
+      if (!(e && canExitOnFillBar(e.raw, b, policy))) problems.push('exit on the fill bar ' + f.i);
+    }
+  }
+  // cash + positions = equity on every bar: rebuild the book from the fills alone
+  const cap0 = res.schema?.sizing?.capital ?? 100000;
+  if (res.fills && res.equity && res.equity.length) {
+    const flow = new Float64Array(res.equity.length), dq = new Float64Array(res.equity.length);
+    const buyCost = new Map();
+    for (const t of res.trades) buyCost.set(t.entryIdx + ':' + t.qty + ':' + t.entryPrice, t);
+    for (const f of res.fills) { flow[f.i] += (f.side === 'buy' ? -1 : 1) * f.price * f.qty; dq[f.i] += (f.side === 'buy' ? 1 : -1) * f.qty; }
+    let costs = 0; for (const t of res.trades) costs += t.costs;
+    let q = 0, gross = cap0; const last = res.equity.length - 1;
+    for (let i = 0; i <= last; i++) { gross += flow[i]; q += dq[i]; }
+    const open = res.trades.filter(t => t.reason === 'end_of_data');
+    // the end-of-data close is a mark, not a fill: add it back
+    let endCash = gross - costs;
+    for (const t of open) endCash += t.exitPrice * t.qty;
+    if (Math.abs(q - open.reduce((a, t) => a + t.qty, 0)) > 1e-9) problems.push('fills do not balance to the open quantity');
+    else if (Math.abs(endCash - res.equity[last]) > 1e-6 * Math.max(1, Math.abs(endCash))) problems.push(`cash + positions != equity at the end (${endCash} vs ${res.equity[last]})`);
+  }
+  return { ok: problems.length === 0, problems };
 }
 
 function warmupBars(schema) {
@@ -576,16 +665,17 @@ function measurePrices(ex, bars, i) {
   };
 }
 
-function checkExit(schema, ctx, bars, i, lots) {
+function checkExit(schema, ctx, bars, i, lots, restTarget, restStop) {
   const ex = schema.exit || {};
   const accounting = ex.accounting || 'FIFO';
   const L = exitLot(lots, accounting);
   const { up, down } = measurePrices(ex, bars, i);
 
-  if (ex.targetPct != null && up >= L.price * (1 + ex.targetPct / 100))
+  // a target / stop that rests as an order is filled intrabar by the order model, not signalled on the close
+  if (!restTarget && ex.targetPct != null && up >= L.price * (1 + ex.targetPct / 100))
     return { mode: ex.exitLotsAtOnce === false ? 'one' : 'all', accounting, reason: 'target' };
 
-  if (ex.stopPct != null && down <= L.price * (1 - ex.stopPct / 100))
+  if (!restStop && ex.stopPct != null && down <= L.price * (1 - ex.stopPct / 100))
     return { mode: 'all', accounting, reason: 'stop' };
 
   if (ex.trailPct != null) {
