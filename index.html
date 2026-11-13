@@ -27,6 +27,8 @@
   <button class="tab" role="tab" aria-selected="false" data-screen="report">Report</button>
   <button class="tab" role="tab" aria-selected="false" data-screen="studio">Studio</button>
   <button class="tab" role="tab" aria-selected="false" data-screen="portfolio">Portfolio</button>
+  <button class="tab" role="tab" aria-selected="false" data-screen="signals">Signals</button>
+  <button class="tab" role="tab" aria-selected="false" data-screen="compare">Compare</button>
   <button class="tab" role="tab" aria-selected="false" data-screen="library">Library</button>
   <button class="tab" role="tab" aria-selected="false" data-screen="json">Advanced</button>
   <button class="tab" role="tab" aria-selected="false" data-screen="data">Data</button>
@@ -267,6 +269,30 @@
     </section>
 
     <div class="btn-row"><button class="btn" id="rep-csv">Export trades as CSV</button></div>
+
+    <section class="section">
+      <h2>Against simply investing <span class="hint">same money, same dates</span></h2>
+      <div class="section-body"><div id="x-bench"></div></div>
+    </section>
+    <section class="section">
+      <h2>Shuffle test <span class="hint">same trades, random order</span></h2>
+      <div class="section-body">
+        <div class="row">
+          <label class="field"><span>Shuffles</span><input id="x-mc-n" type="number" value="2000" min="100" max="10000"></label>
+          <label class="field"><span>Seed</span><input id="x-mc-seed" type="number" value="42"></label>
+        </div>
+        <div class="btn-row"><button class="btn" id="x-mc-run">Run shuffle test</button></div>
+        <div id="x-mc-out"></div>
+      </div>
+    </section>
+    <section class="section">
+      <h2>Check against a sheet <span class="hint">paste rows: entry date, entry price, exit date, exit price, quantity</span></h2>
+      <div class="section-body">
+        <textarea id="x-sheet" rows="5" style="width:100%" placeholder="2024-01-01, 100.00, 2024-01-06, 110.00, 50"></textarea>
+        <div class="btn-row"><button class="btn" id="x-sheet-run">Compare with this run</button></div>
+        <div id="x-sheet-out"></div>
+      </div>
+    </section>
   </div>
 </main>
 
@@ -275,6 +301,7 @@
   <div id="studio-empty" class="notice">Run a backtest first, then present it here.</div>
   <div id="studio-body" style="display:none">
     <div id="studio-warn"></div>
+    <div id="studio-id" class="mono muted" style="font-size:11px;word-break:break-all;margin-bottom:8px"></div>
     <div class="btn-row">
       <button class="btn" id="st-ratio" data-ratio="9:16">9:16</button>
       <button class="btn ghost" id="st-prev">‹ Back</button>
@@ -289,6 +316,65 @@
       </div>
     </div>
   </div>
+</main>
+
+<!-- ============ SIGNALS ============ -->
+<main id="screen-signals" class="screen">
+  <div class="notice">What the dashboard strategies would do at the next session, from prices up to the latest published day. These are the rules' orders, not advice.</div>
+  <section class="section">
+    <h2>Scan</h2>
+    <div class="section-body">
+      <label class="field"><span>Universe</span><select id="sg-universe">
+          <option value="">My own list (below)</option>
+          <option value="NIFTY500_50">Nifty 500, first 50 by name (today's list — survivorship-biased)</option>
+          <option value="NIFTY500">Nifty 500 (today's list — survivorship-biased)</option>
+          <option value="ETFS">All ETFs in the dataset</option>
+        </select></label>
+      <label class="field"><span>Symbols — comma separated</span><input id="sg-symbols" placeholder="RELIANCE, INFY, TCS"></label>
+      <div id="sg-presets" class="row" style="flex-wrap:wrap"></div>
+      <div class="row">
+        <label class="field"><span>₹ per buy</span><input id="sg-pertx" type="number" value="5000" min="1"></label>
+        <label class="field"><span>Max buys</span><input id="sg-maxbuys" type="number" value="5" min="1"></label>
+        <label class="field"><span>Near = within %</span><input id="sg-near" type="number" value="2" min="0" step="0.5"></label>
+      </div>
+      <div class="btn-row">
+        <button class="btn primary" id="sg-run">Scan signals</button>
+        <button class="btn" id="sg-quotes">Add live prices</button>
+        <label class="mono" style="align-self:center;font-size:12px"><input type="checkbox" id="sg-all"> show "nothing to place" too</label>
+      </div>
+      <div id="sg-status"></div>
+    </div>
+  </section>
+  <div id="sg-cards"></div>
+</main>
+
+<!-- ============ COMPARE ============ -->
+<main id="screen-compare" class="screen">
+  <div class="notice">Several strategies on the same symbols and dates, ranked. Each symbol is run on its own money; this is not a portfolio.</div>
+  <section class="section">
+    <h2>Setup</h2>
+    <div class="section-body">
+      <label class="field"><span>Universe</span><select id="cp-universe">
+          <option value="">My own list (below)</option>
+          <option value="NIFTY500_50">Nifty 500, first 50 by name (today's list — survivorship-biased)</option>
+          <option value="NIFTY500">Nifty 500 (today's list — survivorship-biased)</option>
+          <option value="ETFS">All ETFs in the dataset</option>
+        </select></label>
+      <label class="field"><span>Symbols — comma separated</span><input id="cp-symbols" placeholder="RELIANCE, INFY, TCS"></label>
+      <div id="cp-presets" class="row" style="flex-wrap:wrap"></div>
+      <div class="row">
+        <label class="field"><span>Start date</span><input id="cp-start" type="date" value="2015-01-01"></label>
+        <label class="field"><span>₹ per buy</span><input id="cp-pertx" type="number" value="5000" min="1"></label>
+        <label class="field"><span>Max buys</span><input id="cp-maxbuys" type="number" value="5" min="1"></label>
+      </div>
+      <div class="btn-row"><button class="btn primary" id="cp-run">Compare</button><button class="btn" id="cp-csv" disabled>Export CSV</button></div>
+      <div id="cp-status"></div>
+    </div>
+  </section>
+  <section class="section" id="cp-results" style="display:none">
+    <h2>Ranked by median XIRR</h2>
+    <div class="section-body"><div id="cp-summary" style="overflow-x:auto"></div><div class="figure-label" style="margin-top:14px">Every run</div><div id="cp-rows" style="overflow-x:auto"></div></div>
+  </section>
 </main>
 
 <!-- ============ PORTFOLIO ============ -->
@@ -416,5 +502,6 @@
 
 <script src="eod2-client.js"></script>
 <script type="module" src="ui.js"></script>
+<script type="module" src="ui-p4.js"></script>
 </body>
 </html>

@@ -63,7 +63,9 @@ function machine(id, B, s0, P, sheet) {
       if (px != null) { sells.push({ i, price: px, qty, type: 'limit_sell', level: (inv / qty) * (1 + t) }); trades.push({ eI, xI: i, entry: inv / qty, exit: px, qty, buys: 1 }); eI = null; }
       prevQty = qty; prevInv = inv; prevExit = px != null;
     }
-    return { buys, sells, trades };
+    const hold = prevQty !== null && !prevExit, e = n - 1;
+    return { buys, sells, trades, end: { holding: hold, qty: hold ? prevQty : 0, avg: hold ? prevInv / prevQty : null, target: hold ? (prevInv / prevQty) * (1 + t) : null,
+      canBuyNext: prevQty === null, amount: amt, smaMax: Math.max(...[5, 10, 15, 50, 100, 200].map(p => sma(c, e, p) ?? Infinity)) } };
   }
 
   if (id === 'smartavg') {
@@ -84,7 +86,9 @@ function machine(id, B, s0, P, sheet) {
       if (px != null) { sells.push({ i, price: px, qty: tq, type: 'limit_sell', level: target }); trades.push({ eI, xI: i, entry: avg, exit: px, qty: tq, buys: nb }); }
       pReady = ready; pBuy = buy; pExit = px != null; pQty = tq; pInv = ti; pPl = pl;
     }
-    return { buys, sells, trades };
+    const hold = pQty > 0 && !pExit, ready = pExit ? 1 : (pBuy ? pReady + 1 : pReady);
+    return { buys, sells, trades, end: { holding: hold, qty: hold ? pQty : 0, avg: hold ? pInv / pQty : null, target: hold ? (pInv / pQty) * (1 + t) : null, ready,
+      buyNext: pExit ? true : (ready <= P.maxBuys && pPl != null && pPl < dip * (ready - 1)), lots: nb } };
   }
 
   if (id === 'blsh') {
@@ -102,7 +106,9 @@ function machine(id, B, s0, P, sheet) {
       if (px != null) { sells.push({ i, price: px, qty: tq, type: 'limit_sell', level: target }); trades.push({ eI, xI: i, entry: avg, exit: px, qty: tq, buys: nb }); eI = null; nb = 0; }
       pExit = px != null; pBuy = buy; pReady = ready; pQty = tq; pInv = ti;
     }
-    return { buys, sells, trades };
+    const hold = pQty > 0 && !pExit;
+    return { buys, sells, trades, end: { holding: hold, qty: hold ? pQty : 0, avg: hold ? pInv / pQty : null, target: hold ? (pInv / pQty) * (1 + t) : null, ready: pExit ? 1 : pReady,
+      buyNext: pBuy && !pExit, trigger: trig(n - 1), lots: nb } };
   }
 
   if (id === 'sst') {
@@ -129,7 +135,10 @@ function machine(id, B, s0, P, sheet) {
       if (px != null) { sells.push({ i, price: px, qty: tq, type: 'limit_sell', level: target }); trades.push({ eI, xI: i, entry: avg, exit: px, qty: tq, buys: lastN }); eI = null; lastN = null; }
       pArmed = armed; pBuy = buy; pExit = px != null; pReady = ready; pQty = tq; pInv = ti; pTarget = target;
     }
-    return { buys, sells, trades };
+    const hold = pQty > 0 && !pExit, ready = pExit ? 1 : pBuy ? pReady + 1 : pReady;
+    // tomorrow's buy needs: not the bar after an exit, lots left, armed (sticky unless a buy just consumed it), High > level > Low
+    return { buys, sells, trades, end: { holding: hold, qty: hold ? pQty : 0, avg: hold ? pInv / pQty : null, target: hold ? pTarget : null, ready,
+      armed: !pBuy && !pExit && pArmed, blocked: pExit, lotsLeft: ready <= P.maxBuys, level: rollMax(h, n - 1, 20), low20: rollMin(l, n - 1, 20), tiers } };
   }
 
   if (id === 'sstlifo') {
@@ -149,7 +158,8 @@ function machine(id, B, s0, P, sheet) {
       }
       pArmed = armed; pBought = buy;
     }
-    return { buys, sells, trades };
+    return { buys, sells, trades, end: { holding: lots.length > 0, qty: lots.reduce((a, L) => a + L.qty, 0), armed: pArmed && !pBought, level: rollMax(h, n - 1, 20), low20: rollMin(l, n - 1, 20),
+      ladder: lots.map(L => ({ since: L.i, price: L.price, qty: L.qty, target: L.target })) } };
   }
   throw new Error('unknown BT/DESK preset: ' + id);
 }
@@ -222,7 +232,7 @@ export function runBtdesk(bars, id, params = {}, options = {}) {
   if (cash.some(x => x < -1e-6)) problems.push('negative cash');
 
   const forStats = equity.slice(s0), statBars = { t: bars.t.slice(s0), c: B.c.slice(s0) };
-  return { ok: true, preset: id, trades, equity, cash, fills, skipped: [], open, invariants: { ok: problems.length === 0, problems },
+  return { ok: true, preset: id, trades, equity, cash, fills, skipped: [], open, end: ev.end, invariants: { ok: problems.length === 0, problems },
     stats: computeStats(trades, forStats, statBars, capital),
     meta: { schemaVersion: 2, strategy: preset.label, symbol: bars.symbol || null, bars: n, from: bars.t[s0], to: bars.t[n - 1], capital, costPreset: cp.label,
       raw: !!options.raw, fillModel: sheet ? 'sheet' : 'honest', params: P, entryOrder: preset.entryOrder, exitOrder: preset.exitOrder, runAt: Date.now() } };

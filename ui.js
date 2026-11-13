@@ -491,6 +491,7 @@ $('btn-run').addEventListener('click', async () => {
 
   document.querySelector('.tab[data-screen="chart"]').click();
   await renderChart(res, rec, schema);
+  window.dispatchEvent(new CustomEvent('btlab:run', { detail: res }));        // Report extras, Studio fingerprint (ui-p4.js)
 });
 
 async function renderChart(res, bars, schema) {
