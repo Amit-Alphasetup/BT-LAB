@@ -316,7 +316,8 @@ $('json-load').addEventListener('click', () => {
 
 /* Official dataset first; an imported file second; Yahoo only when the box is ticked. */
 const BASE_KEY = 'btlab_eod2_base', UNOFF_KEY = 'btlab_allow_unofficial';
-$('f-eod2-base').value = localStorage.getItem(BASE_KEY) || SRC.DEFAULT_BASE_URL;
+{ const saved = localStorage.getItem(BASE_KEY);                 // the old (ETF-only) default saved by an earlier build counts as "not set"
+  $('f-eod2-base').value = saved && saved !== SRC.LEGACY_BASE_URL ? saved : SRC.DEFAULT_BASE_URL; }
 $('f-allow-unofficial').checked = localStorage.getItem(UNOFF_KEY) === '1';
 $('f-allow-unofficial').addEventListener('change', e => localStorage.setItem(UNOFF_KEY, e.target.checked ? '1' : '0'));
 
@@ -638,25 +639,31 @@ $('st-ratio').addEventListener('click', () => {
 $('pf-ranking').innerHTML = Object.entries(PF.RANKING_RULES)
   .map(([k, v]) => `<option value="${k}">${esc(v.label)}</option>`).join('');
 
+$('pf-universe').addEventListener('change', e => {
+  const u = SRC.UNIVERSES[e.target.value];
+  $('pf-symbols').disabled = !!u;
+  $('pf-bias').style.display = u && u.biased ? '' : 'none';
+});
+
 $('pf-run').addEventListener('click', async () => {
   const { schema, errs } = renderValidation();
   if (errs.length) { toast('Fix the strategy first.', true); return; }
-  const syms = $('pf-symbols').value.split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
-  if (!syms.length) { toast('List at least two symbols.', true); return; }
+  await datasetReady;
+  const uniId = $('pf-universe').value, uni = SRC.UNIVERSES[uniId] || null;
+  const syms = uni ? SRC.universeSymbols(uniId) : $('pf-symbols').value.split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+  if (!syms.length) { toast(uni ? 'That universe is not in the loaded dataset.' : 'List at least two symbols.', true); return; }
 
   $('pf-status').innerHTML = kv([['status', 'loading ' + syms.length + ' symbols…']]);
-  const records = {};
-  const missing = [];
+  const many = await SRC.loadMany(syms, { loadRecord: D.loadRecord, fetchUnofficial, allowUnofficial: $('f-allow-unofficial').checked,
+    onProgress: (done, total) => { $('pf-status').innerHTML = kv([['status', `loading prices ${done} / ${total}`]]); } });
+  const records = many.records;
+  const missing = many.missing.map(m => m.symbol);
   const srcCount = {};
-  for (const sym of syms) {
-    const got = await loadData(sym);
-    if (got.bars && got.bars.t.length) { records[sym] = got.bars; srcCount[SRC.sourceTag(got)] = (srcCount[SRC.sourceTag(got)] || 0) + 1; }
-    else missing.push(sym);
-  }
-  if (missing.length) {
-    $('pf-status').innerHTML = kv([['no data', missing.join(', '), 'bad'],
+  for (const t of Object.values(many.tags)) srcCount[t] = (srcCount[t] || 0) + 1;
+  if (missing.length && !Object.keys(records).length) {
+    $('pf-status').innerHTML = kv([['no data', missing.slice(0, 20).join(', '), 'bad'],
       ['fix', 'not in the official dataset — import a CSV on the Data tab', 'warn']]);
-    if (!Object.keys(records).length) return;
+    return;
   }
 
   const t0 = performance.now();
@@ -669,7 +676,10 @@ $('pf-run').addEventListener('click', async () => {
   const ms = (performance.now() - t0).toFixed(0);
   const chk = PF.conservationCheck(res, records);
 
+  res.universe = uni ? { id: uniId, label: uni.label, biased: !!uni.biased } : null;
   $('pf-status').innerHTML = kv([
+    ...(uni ? [['universe', uni.label, uni.biased ? 'warn' : '']] : []),
+    ...(missing.length ? [['left out — no data', missing.slice(0, 20).join(', ') + (missing.length > 20 ? ' …' : ''), 'warn']] : []),
     ['symbols', Object.keys(records).length, 'ok'],
     ['data', Object.entries(srcCount).map(([k, n]) => `${esc(k)} × ${n}`).join(', '), Object.keys(srcCount).some(k => !k.startsWith(SRC.SOURCE_LABEL.EOD2)) ? 'warn' : 'ok'],
     ['trades', res.trades.length],
@@ -697,6 +707,7 @@ function renderPortfolio(res) {
   RP.plotEquity($('pf-plot'), { t: Float64Array.from(res.calendar) }, res.equity, null);
 
   $('pf-stats').innerHTML = kv([
+    ...(res.universe ? [['Universe', res.universe.label, res.universe.biased ? 'warn' : '']] : []),
     ['Trades', String(s.trades)],
     ['Win rate', RP.pct(s.winRate)],
     ['Profit factor', RP.num(s.profitFactor)],

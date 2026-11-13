@@ -7,8 +7,8 @@ const S = await import('../source.js');
 
 const fail = m => { console.log('SOURCE FAIL: ' + m); process.exit(1); };
 const ok = (c, m) => { if (!c) fail(m); };
-const BASE = S.DEFAULT_BASE_URL, DS = join(HERE, 'fixtures', 'dataset');
-ok(BASE === 'https://amit-alphasetup.github.io/market-data/', 'default base url');
+const BASE = S.LEGACY_BASE_URL, DS = join(HERE, 'fixtures', 'dataset');          // P1 runs on the v3 (ETF + index) dataset, addressed explicitly
+ok(BASE === 'https://amit-alphasetup.github.io/market-data/', 'v3 base url');
 const manifestText = readFileSync(join(DS, 'manifest.json'), 'utf8');
 const manifest = JSON.parse(manifestText);
 const foreign = [], asked = [];

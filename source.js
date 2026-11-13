@@ -8,7 +8,15 @@
    Needs globalThis.EOD2Client (eod2-client.js, a classic script).
    ============================================================ */
 
-export const DEFAULT_BASE_URL = 'https://amit-alphasetup.github.io/market-data/';
+export const DEFAULT_BASE_URL = 'https://amit-alphasetup.github.io/Amit-Alphasetup-nse-data/';   // v4: ETFs + indices + stocks
+export const LEGACY_BASE_URL = 'https://amit-alphasetup.github.io/market-data/';                  // v3: ETFs + indices only
+/* Tried in order, only when the DEFAULT address cannot be reached: the same published branch read straight from GitHub, then the v3 dataset. */
+export const FALLBACK_BASE_URLS = ['https://raw.githubusercontent.com/Amit-Alphasetup/Amit-Alphasetup-nse-data/pub/', LEGACY_BASE_URL];
+export const UNIVERSES = {
+  NIFTY500: { label: "Nifty 500 (today's list — survivorship-biased)", kind: 'EQ', biased: true },
+  NIFTY500_50: { label: "Nifty 500, first 50 by name (today's list — survivorship-biased)", kind: 'EQ', biased: true, limit: 50 },
+  ETFS: { label: 'All ETFs in the dataset', kind: 'ETF', biased: false },
+};
 export const SOURCE_LABEL = { EOD2: 'Official dataset', CSV: 'Imported file', YAHOO: 'Yahoo — unofficial' };
 const IMPORTED = new Set(['csv', 'bhavcopy', 'seed']);
 const UNOFFICIAL = new Set(['yahoo', 'worker']);
@@ -21,11 +29,20 @@ const num = v => (v === null || v === undefined) ? NaN : v;
 /* Open the published dataset. Never throws: {ok:false, code, detail} on any problem. */
 export async function openDataset(baseUrl = DEFAULT_BASE_URL, opts = {}) {
   const C = globalThis.EOD2Client;
-  ds = { baseUrl, snap: null, error: null };
+  ds = { baseUrl, snap: null, error: null, asked: baseUrl };
   if (!C) { ds.error = { ok: false, code: 'CLIENT_MISSING', detail: 'eod2-client.js is not loaded' }; return ds.error; }
-  const client = C.create({ baseUrl, cache: opts.cache || (globalThis.indexedDB ? 'indexeddb' : 'memory'), dbName: opts.dbName || 'btlab_eod2_v3', fetch: opts.fetch });
-  let snap;
-  try { snap = await client.openSnapshot(); } catch (e) { snap = { ok: false, code: 'SOURCE_UNAVAILABLE', detail: String((e && e.message) || e) }; }
+  const cache = opts.cache || (globalThis.indexedDB ? 'indexeddb' : 'memory');
+  const tryOpen = async (url) => {
+    const client = C.create({ baseUrl: url, cache, dbName: opts.dbName || 'eod2_v4', fetch: opts.fetch });
+    try { return await client.openSnapshot(); } catch (e) { return { ok: false, code: 'SOURCE_UNAVAILABLE', detail: String((e && e.message) || e) }; }
+  };
+  let snap = await tryOpen(baseUrl);
+  if (!snap.ok && baseUrl === DEFAULT_BASE_URL && opts.fallback !== false) {
+    for (const url of FALLBACK_BASE_URLS) {
+      const s2 = await tryOpen(url);
+      if (s2.ok) { snap = s2; ds.baseUrl = url; break; }
+    }
+  }
   if (!snap.ok) { ds.error = snap; return snap; }
   ds.snap = snap;
   return datasetInfo();
@@ -34,8 +51,45 @@ export async function openDataset(baseUrl = DEFAULT_BASE_URL, opts = {}) {
 export function datasetInfo() {
   if (!ds.snap) return ds.error || { ok: false, code: 'NOT_OPEN', detail: 'dataset not opened' };
   const m = ds.snap.manifest;
-  return { ok: true, baseUrl: ds.baseUrl, datasetId: m.datasetId, latestSession: m.latestCompletedSession || m.latestSession, windowStart: m.windowStart || null,
-    contract: m.contract, symbols: Object.keys(m.files).length, quarantined: Object.keys(m.quarantined || {}).length, excluded: Object.keys(m.excluded || {}).length };
+  const kinds = {};
+  for (const e of Object.values(m.files)) kinds[e.kind] = (kinds[e.kind] || 0) + 1;
+  return { ok: true, baseUrl: ds.baseUrl, fallback: ds.baseUrl !== ds.asked, datasetId: m.datasetId, latestSession: m.latestCompletedSession || m.latestSession, windowStart: m.windowStart || null,
+    stocksFrom: m.eqHistoryFloor || null, contract: m.contract, symbols: Object.keys(m.files).length, kinds, truncated: Object.keys(m.pendingActions || {}).length,
+    quarantined: Object.keys(m.quarantined || {}).length, excluded: Object.keys(m.excluded || {}).length };
+}
+
+/* Symbols of a named universe (UNIVERSES). 'NIFTY500' is the list of stocks in the dataset = today's index members: survivorship-biased. */
+export function universeSymbols(id) {
+  const u = UNIVERSES[id];
+  if (!u || !ds.snap) return [];
+  const all = listSymbols(u.kind);
+  return u.limit ? all.slice(0, u.limit) : all;
+}
+
+/* Many symbols at once (portfolio runs): the dataset's symbols go through the client's getMany (bounded parallel downloads, hash-checked),
+   anything else through loadBars. -> { records: {SYM: bars}, tags: {SYM: sourceTag}, missing: [{symbol, reasons}] } */
+export async function loadMany(symbols, o = {}) {
+  const syms = [...new Set(symbols.map(s => String(s || '').trim().toUpperCase()).filter(Boolean))];
+  const out = { records: {}, tags: {}, missing: [] };
+  let done = 0;
+  const tick = () => { done++; if (o.onProgress) o.onProgress(done, syms.length); };
+  const inDs = [], rest = [];
+  const names = ds.snap ? new Set(Object.keys(ds.snap.manifest.files).map(k => k.toUpperCase())) : new Set();
+  for (const s of syms) (names.has(s) ? inDs : rest).push(s);
+  if (inDs.length) {
+    const got = await ds.snap.getMany(inDs, { concurrency: o.concurrency || 6, onProgress: tick });
+    for (const s of inDs) {
+      const r = got[s];
+      if (r && r.ok) { out.records[s] = sliceRecord(recordFromBars(r.meta.symbol, r.bars, 'EOD2'), o); out.tags[s] = sourceTag({ source: 'EOD2', datasetId: ds.snap.id }); }
+      else out.missing.push({ symbol: s, reasons: [r ? r.code : 'SOURCE_UNAVAILABLE'] });
+    }
+  }
+  for (const s of rest) {
+    const r = await loadBars(s, o);
+    if (r.bars && r.bars.t.length) { out.records[s] = r.bars; out.tags[s] = sourceTag(r); } else out.missing.push({ symbol: s, reasons: r.reasons });
+    tick();
+  }
+  return out;
 }
 
 /* Symbols in the dataset, optionally of one kind ('ETF' | 'INDEX' | 'EQ'), sorted. */
@@ -50,7 +104,7 @@ export function datasetRows() {
   if (!ds.snap) return [];
   const m = ds.snap.manifest, rows = [];
   for (const [s, e] of Object.entries(m.files))
-    rows.push({ symbol: s, kind: e.kind, status: e.status, reasons: (e.reasons || []).map(r => r.code).filter(c => c !== 'OK'), first: e.first, last: e.last, bars: e.bars });
+    rows.push({ symbol: s, kind: e.kind, status: e.status, reasons: (e.reasons || []).map(r => r.code).filter(c => c !== 'OK').concat(e.historyTruncatedFrom ? ['HISTORY_FROM ' + e.historyTruncatedFrom + ' (corporate action awaiting review)'] : []), first: e.first, last: e.last, bars: e.bars });
   for (const [s, q] of Object.entries(m.quarantined || {}))
     rows.push({ symbol: s, kind: q.kind || '', status: 'QUARANTINED', reasons: [q.code || 'QUARANTINED'].concat((q.events || []).map(ev => ev.date || ev.code || '').filter(Boolean)), first: null, last: null, bars: 0 });
   for (const [s, x] of Object.entries(m.excluded || {}))
@@ -65,9 +119,12 @@ export function datasetHTML() {
   const i = datasetInfo();
   if (!i.ok) return `<div class="kv"><span>official dataset</span><span class="bad">not loaded — ${esc(i.code)}</span></div><div class="kv"><span>detail</span><span class="warn">${esc(i.detail || '')}</span></div>`;
   const cls = st => st === 'OK' ? 'ok' : st === 'WARN' ? 'warn' : 'bad';
-  const head = [['dataset', i.datasetId, 'ok'], ['latest session', i.latestSession], ['history from', i.windowStart || '—'], ['symbols', i.symbols],
+  const head = [['dataset', i.datasetId, 'ok'], ['latest session', i.latestSession], ['served from', i.baseUrl, i.fallback ? 'warn' : ''],
+    ['ETF + index history from', i.windowStart || '—'], ...(i.stocksFrom ? [['stock history from', i.stocksFrom + ' (each stock: its own first clean bar)']] : []),
+    ['symbols', i.symbols + ' — ' + Object.entries(i.kinds).map(([k, n]) => n + ' ' + k).join(', ')],
+    ...(i.truncated ? [['stocks with a shortened history', i.truncated + ' — a corporate action awaits review', 'warn']] : []),
     ['quarantined', i.quarantined, i.quarantined ? 'bad' : 'ok']].map(([k, v, c]) => `<div class="kv"><span>${k}</span><span class="${c || ''}">${esc(v)}</span></div>`).join('');
-  const body = datasetRows().map(r => `<div class="kv" data-sym="${esc(r.symbol)}"><span>${esc(r.symbol)} <span class="muted">${esc(r.kind)}${r.last ? ' · to ' + r.last : ''}</span></span><span class="${cls(r.status)}">${esc(r.status)}${r.reasons.length ? ' · ' + esc(r.reasons.join(', ')) : ''}</span></div>`).join('');
+  const body = datasetRows().map(r => `<div class="kv" data-sym="${esc(r.symbol)}"><span>${esc(r.symbol)} <span class="muted">${esc(r.kind)}${r.last ? ' · ' + r.first + ' to ' + r.last : ''}</span></span><span class="${cls(r.status)}">${esc(r.status)}${r.reasons.length ? ' · ' + esc(r.reasons.join(', ')) : ''}</span></div>`).join('');
   return head + `<div class="figure-label" style="margin-top:14px">Per symbol</div>` + body;
 }
 
