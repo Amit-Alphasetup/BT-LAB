@@ -38,6 +38,7 @@
 <main id="screen-build" class="screen active">
 
   <div id="validation" class="hidden"></div>
+  <div id="handoff" class="notice hidden"></div>
 
   <section class="section">
     <h2>Instrument <span class="hint">what to test</span></h2>
@@ -293,6 +294,20 @@
         <div id="x-sheet-out"></div>
       </div>
     </section>
+    <section class="section">
+      <h2>Actual vs backtest <span class="hint">your AlphaDesk trades in this symbol beside this run</span></h2>
+      <div class="section-body">
+        <div class="row">
+          <label class="field"><span>Pair entries within (days)</span><input id="av-window" type="number" value="5" min="0" max="30"></label>
+        </div>
+        <div class="btn-row">
+          <button class="btn" id="av-run">Compare with my AlphaDesk ledger</button>
+          <button class="btn" id="av-pick">Load an AlphaDesk export file</button>
+        </div>
+        <input type="file" id="av-file" accept=".json,.csv" class="hidden">
+        <div id="av-out"></div>
+      </div>
+    </section>
   </div>
 </main>
 
@@ -503,5 +518,6 @@
 <script src="eod2-client.js"></script>
 <script type="module" src="ui.js"></script>
 <script type="module" src="ui-p4.js"></script>
+<script type="module" src="ui-p5.js"></script>
 </body>
 </html>
