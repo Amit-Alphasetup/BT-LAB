@@ -421,6 +421,22 @@
       <div id="pf-status"></div>
     </div>
   </section>
+  <section class="section" id="ad-section">
+    <h2>AlphaDesk strategies <span class="hint">AlphaDesk's own LIFO and Dual Momentum rules on the official ETF data</span></h2>
+    <div class="section-body">
+      <div class="row">
+        <label class="field"><span>Strategy</span><select id="ad-preset"><option value="lifo">AlphaDesk LIFO</option><option value="dm">AlphaDesk Dual Momentum</option></select></label>
+        <label class="field"><span>Fills</span><select id="ad-mode"><option value="next-open">next session open (realistic)</option><option value="sheet-close">same close (sheet)</option></select></label>
+      </div>
+      <div class="row">
+        <label class="field"><span>From</span><input id="ad-from" type="date"></label>
+        <label class="field"><span>To</span><input id="ad-to" type="date"></label>
+      </div>
+      <div class="notice" id="ad-note"></div>
+      <div class="btn-row"><button class="btn primary" id="ad-run">Run AlphaDesk strategy</button></div>
+      <div id="ad-out"></div>
+    </div>
+  </section>
   <section class="section" id="pf-results" style="display:none">
     <h2>Result</h2>
     <div class="section-body">
