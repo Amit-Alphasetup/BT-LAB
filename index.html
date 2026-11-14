@@ -407,7 +407,16 @@
           <option value="NIFTY500_50">Nifty 500, first 50 by name (today's list — survivorship-biased)</option>
           <option value="NIFTY500">Nifty 500 (today's list — survivorship-biased)</option>
           <option value="ETFS">All ETFs in the dataset</option>
+          <option value="PIT_NIFTY50">Nifty 50 — point-in-time (members on each day)</option>
+          <option value="PIT_NEXT50">Nifty Next 50 — point-in-time</option>
+          <option value="PIT_NIFTY100">Nifty 100 — point-in-time</option>
         </select></label>
+      <div id="pf-pit" style="display:none">
+        <label class="field"><span>When a stock leaves the index</span>
+          <select id="pf-removal"><option value="exit">Sell at the next open</option><option value="hold">Keep it until the strategy sells</option></select></label>
+        <label class="field"><span>Start date (the lists are proven from 2010-01-01)</span><input id="pf-from" type="date" value="2010-01-01"></label>
+        <div class="notice" id="pf-pit-missing" style="display:none"></div>
+      </div>
       <div class="notice" id="pf-bias" style="display:none">Survivorship-biased: this is TODAY's index list. Companies that fell out of the index or were delisted are missing, so past results look better than they really were.</div>
       <label class="field"><span>Symbols — comma separated, from the official dataset</span>
         <input id="pf-symbols" placeholder="NIFTYBEES, BANKBEES, GOLDBEES"></label>

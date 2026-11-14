@@ -327,6 +327,12 @@ async function openDataset() {
   $('dataset-out').innerHTML = kv([['status', 'loading dataset…']]);
   const info = await SRC.openDataset(base);
   $('dataset-out').innerHTML = SRC.datasetHTML();
+  if (info.ok) SRC.loadMembership().then(async m => {
+    if (!m.ok) return;
+    const U = await import('./universe.js'), miss = U.pastMembersWithoutData(m, SRC.manifestFiles());
+    $('dataset-out').insertAdjacentHTML('beforeend', `<div class="notice" id="pit-missing">Point-in-time lists: ${esc(U.listIndices(m).map(x => x.name + ' from ' + x.startDate).join(', '))}. ` +
+      `${miss.length} past index members have no price data, so point-in-time backtests cannot trade them: ${esc(miss.map(r => r.symbol + ' (to ' + r.lastTo + ')').join(', '))}.</div>`);
+  });
   $('sym-list').innerHTML = ['ETF', 'INDEX', 'EQ'].flatMap(k => SRC.listSymbols(k).map(s => `<option value="${esc(s)}" label="${k}"></option>`)).join('');
   $('doc-data').textContent = info.ok ? `DATASET ${info.datasetId} · TO ${info.latestSession}` : 'DATA — DATASET NOT LOADED';
   return info;
@@ -673,18 +679,33 @@ $('pf-universe').addEventListener('change', e => {
   const u = SRC.UNIVERSES[e.target.value];
   $('pf-symbols').disabled = !!u;
   $('pf-bias').style.display = u && u.biased ? '' : 'none';
+  $('pf-pit').style.display = u && u.pit ? '' : 'none';
 });
+
+/* P6: point-in-time universe -> { syms, membership } or { error } */
+async function pitUniverse(uni) {
+  const model = await SRC.loadMembership();
+  if (!model.ok) return { error: 'Point-in-time lists unavailable: ' + (model.detail || model.code) };
+  const U = await import('./universe.js');
+  const u = U.universeFor(model, uni.pit, $('pf-from').value);
+  if (!u.ok) return { error: u.message };
+  u.index = uni.pit;
+  return { syms: u.symbols, membership: u, from: u.from };
+}
 
 $('pf-run').addEventListener('click', async () => {
   const { schema, errs } = renderValidation();
   if (errs.length) { toast('Fix the strategy first.', true); return; }
   await datasetReady;
   const uniId = $('pf-universe').value, uni = SRC.UNIVERSES[uniId] || null;
-  const syms = uni ? SRC.universeSymbols(uniId) : $('pf-symbols').value.split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+  const pit = uni && uni.pit ? await pitUniverse(uni) : null;
+  if (pit && pit.error) { $('pf-status').innerHTML = kv([['refused', esc(pit.error), 'bad']]); toast(pit.error, true); return; }
+  const syms = pit ? pit.syms : uni ? SRC.universeSymbols(uniId) : $('pf-symbols').value.split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
   if (!syms.length) { toast(uni ? 'That universe is not in the loaded dataset.' : 'List at least two symbols.', true); return; }
 
   $('pf-status').innerHTML = kv([['status', 'loading ' + syms.length + ' symbols…']]);
   const many = await SRC.loadMany(syms, { loadRecord: D.loadRecord, fetchUnofficial, allowUnofficial: $('f-allow-unofficial').checked,
+    ...(pit ? { from: pit.from, warmup: 260 } : {}),
     onProgress: (done, total) => { $('pf-status').innerHTML = kv([['status', `loading prices ${done} / ${total}`]]); } });
   const records = many.records;
   const missing = many.missing.map(m => m.symbol);
@@ -702,9 +723,15 @@ $('pf-run').addEventListener('click', async () => {
     capital: Number($('pf-capital').value),
     ranking: $('pf-ranking').value,
     raw: rawMode,
+    ...(pit ? { membership: pit.membership, onRemoval: $('pf-removal').value } : {}),
   });
   const ms = (performance.now() - t0).toFixed(0);
   const chk = PF.conservationCheck(res, records);
+  if (pit) {
+    const el = $('pf-pit-missing');
+    el.style.display = missing.length ? '' : 'none';
+    el.textContent = missing.length ? `${missing.length} past members have no price data and cannot be traded (mostly delisted before EOD2 kept them): ${missing.join(', ')}. Results still lean slightly optimistic.` : '';
+  }
 
   res.universe = uni ? { id: uniId, label: uni.label, biased: !!uni.biased } : null;
   $('pf-status').innerHTML = kv([

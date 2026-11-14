@@ -68,7 +68,10 @@ export function runPortfolio(records, schema, options = {}) {
     ranking = 'momentum',
     raw = false,
     dataAsOf = Infinity,
+    membership = null,          // P6: { isMember(sym, tMs) } from universe.js universeFor; null = every symbol always tradable
+    onRemoval = 'exit',         // 'exit': sell at the next open after the symbol leaves the index; 'hold': keep until the strategy exits
   } = options;
+  const member = membership ? (s, t) => membership.isMember(s, t) : () => true;
 
   const costPreset = raw ? COST_PRESETS.none
     : (COST_PRESETS[schema.costs?.preset] || COST_PRESETS.zerodha_delivery);
@@ -105,20 +108,23 @@ export function runPortfolio(records, schema, options = {}) {
     const today = calendar[d];
 
     /* ---- 1. fills from yesterday's signals: SELLS FIRST ---- */
+    const carry = [];                   // no bar today (suspension / delisting): try again at the next session's open
     while (pendingSells.length) {
       const s = pendingSells.shift();
       const p = prep[s.symbol];
       const i = p.idxByTime.get(today);
-      if (i == null) { pendingSells.push({ ...s, retry: (s.retry || 0) + 1 }); if (s.retry > 3) {} else continue; }
+      if (i == null) { carry.push(s); continue; }
       const px = slippedPrice('sell', p.bars.o[i], p.bars.c[i - 1], schema.costs);
       cash += closeSymbolLots(positions, s.symbol, s.mode, accounting, px, today, i, trades, costPreset, s.reason, p);
     }
+    pendingSells.push(...carry);
 
     while (pendingBuys.length) {
       const bsig = pendingBuys.shift();
       const p = prep[bsig.symbol];
       const i = p.idxByTime.get(today);
       if (i == null) continue;
+      if (!member(bsig.symbol, today)) { skipped.push({ date: today, symbol: bsig.symbol, reason: 'not_index_member' }); continue; }
       const open = positions.get(bsig.symbol);
       const isNew = !open || !open.lots.length;
       if (isNew && positions.size >= slots) { skipped.push({ date: today, symbol: bsig.symbol, reason: 'no_slot' }); continue; }
@@ -152,6 +158,7 @@ export function runPortfolio(records, schema, options = {}) {
       if (i == null) continue;
       const ex = exitDecision(schema, pos, p, i, accounting);
       if (ex) pendingSells.push({ symbol: sym, mode: ex.mode, reason: ex.reason });
+      else if (onRemoval === 'exit' && pos.lots.length && !member(sym, today)) pendingSells.push({ symbol: sym, mode: 'all', reason: 'index_removal' });
     }
     // entries — collect, then rank
     const cands = [];
@@ -159,7 +166,7 @@ export function runPortfolio(records, schema, options = {}) {
       const p = prep[sym];
       if (!p) continue;
       const i = p.idxByTime.get(today);
-      if (i == null || !p.entries[i]) continue;
+      if (i == null || !p.entries[i] || !member(sym, today)) continue;
       const open = positions.get(sym);
       const hasPos = open && open.lots.length;
       if (hasPos && !(schema.pyramiding?.enabled && open.lots.length < (schema.pyramiding.maxLots ?? 1))) continue;
@@ -204,6 +211,7 @@ export function runPortfolio(records, schema, options = {}) {
       slots, capital, ranking,
       rankingLabel: (RANKING_RULES[ranking] || RANKING_RULES.alphabetical).label,
       symbols: symbols.length,
+      membership: membership ? { index: membership.index || null, from: membership.startDate || null, onRemoval } : null,
       concurrent,
       slotUtilisation: avg(concurrent) / slots * 100,
       cashDragPct: cashDrag(equity, concurrent, slots),

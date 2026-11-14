@@ -16,6 +16,10 @@ export const UNIVERSES = {
   NIFTY500: { label: "Nifty 500 (today's list — survivorship-biased)", kind: 'EQ', biased: true },
   NIFTY500_50: { label: "Nifty 500, first 50 by name (today's list — survivorship-biased)", kind: 'EQ', biased: true, limit: 50 },
   ETFS: { label: 'All ETFs in the dataset', kind: 'ETF', biased: false },
+  /* P6 point-in-time: a stock is tradable only on days it was in the index (ref/membership.json). Symbols come from loadMembership. */
+  PIT_NIFTY50: { label: 'Nifty 50 — point-in-time (members on each day)', kind: 'EQ', biased: false, pit: 'NIFTY 50' },
+  PIT_NEXT50: { label: 'Nifty Next 50 — point-in-time', kind: 'EQ', biased: false, pit: 'NIFTY NEXT 50' },
+  PIT_NIFTY100: { label: 'Nifty 100 — point-in-time', kind: 'EQ', biased: false, pit: 'NIFTY 100' },
 };
 export const SOURCE_LABEL = { EOD2: 'Official dataset', CSV: 'Imported file', YAHOO: 'Yahoo — unofficial' };
 const IMPORTED = new Set(['csv', 'bhavcopy', 'seed']);
@@ -61,9 +65,27 @@ export function datasetInfo() {
 /* Symbols of a named universe (UNIVERSES). 'NIFTY500' is the list of stocks in the dataset = today's index members: survivorship-biased. */
 export function universeSymbols(id) {
   const u = UNIVERSES[id];
-  if (!u || !ds.snap) return [];
+  if (!u || !ds.snap || u.pit) return [];
   const all = listSymbols(u.kind);
   return u.limit ? all.slice(0, u.limit) : all;
+}
+
+/* P6: point-in-time index membership (manifest.ref.membership), sha256-checked over the raw bytes. -> model (universe.js) | { ok:false, code, detail } */
+export async function loadMembership(fetchImpl = globalThis.fetch) {
+  if (!ds.snap) return { ok: false, code: 'NOT_OPEN', detail: 'dataset not opened' };
+  if (ds.membership && ds.membership.id === ds.snap.id) return ds.membership;
+  const ref = ds.snap.manifest.ref && ds.snap.manifest.ref.membership;
+  if (!ref) return { ok: false, code: 'NO_MEMBERSHIP', detail: 'this dataset has no point-in-time index lists (published before P6)' };
+  try {
+    const r = await fetchImpl(new URL(ref.path, ds.baseUrl).href, { cache: 'no-cache' });
+    if (!r.ok) return { ok: false, code: 'FETCH_FAILED', detail: 'HTTP ' + r.status };
+    const bytes = new Uint8Array(await r.arrayBuffer());
+    const hex = [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map(b => b.toString(16).padStart(2, '0')).join('');
+    if (hex !== ref.sha256) return { ok: false, code: 'HASH_MISMATCH', detail: 'membership file does not match the manifest' };
+    const { buildModel } = await import('./universe.js');
+    ds.membership = { ok: true, id: ds.snap.id, ...buildModel(JSON.parse(new TextDecoder().decode(bytes)), ds.snap.manifest.files) };
+    return ds.membership;
+  } catch (e) { return { ok: false, code: 'FETCH_FAILED', detail: String(e && e.message || e) }; }
 }
 
 /* Many symbols at once (portfolio runs): the dataset's symbols go through the client's getMany (bounded parallel downloads, hash-checked),
@@ -93,6 +115,8 @@ export async function loadMany(symbols, o = {}) {
 }
 
 /* Symbols in the dataset, optionally of one kind ('ETF' | 'INDEX' | 'EQ'), sorted. */
+export function manifestFiles() { return ds.snap ? ds.snap.manifest.files : {}; }
+
 export function listSymbols(kind) {
   if (!ds.snap) return [];
   const f = ds.snap.manifest.files;

@@ -1,0 +1,372 @@
+{
+ "dataset": "2026-11-12-r1",
+ "from": "2010-01-01",
+ "to": "2026-11-12",
+ "options": {
+  "slots": 10,
+  "capital": 500000,
+  "ranking": "momentum"
+ },
+ "rows": [
+  {
+   "index": "NIFTY 50",
+   "preset": "ma_stack",
+   "run": "A today-list",
+   "symbols": 50,
+   "trades": 2748,
+   "removalSells": 0,
+   "cagr": 1.05,
+   "maxDD": 20.25,
+   "finalEquity": 603144
+  },
+  {
+   "index": "NIFTY 50",
+   "preset": "ma_stack",
+   "run": "B pit-exit",
+   "symbols": 89,
+   "trades": 2756,
+   "removalSells": 7,
+   "cagr": -2.19,
+   "maxDD": 38.16,
+   "finalEquity": 336113
+  },
+  {
+   "index": "NIFTY 50",
+   "preset": "ma_stack",
+   "run": "C pit-hold",
+   "symbols": 89,
+   "trades": 2750,
+   "removalSells": 0,
+   "cagr": -2.22,
+   "maxDD": 38.56,
+   "finalEquity": 334540
+  },
+  {
+   "index": "NIFTY 50",
+   "preset": "golden_cross",
+   "run": "A today-list",
+   "symbols": 50,
+   "trades": 95,
+   "removalSells": 0,
+   "cagr": 4.7,
+   "maxDD": 35.91,
+   "finalEquity": 1138972
+  },
+  {
+   "index": "NIFTY 50",
+   "preset": "golden_cross",
+   "run": "B pit-exit",
+   "symbols": 89,
+   "trades": 75,
+   "removalSells": 1,
+   "cagr": 5.97,
+   "maxDD": 38.3,
+   "finalEquity": 1414673
+  },
+  {
+   "index": "NIFTY 50",
+   "preset": "golden_cross",
+   "run": "C pit-hold",
+   "symbols": 89,
+   "trades": 82,
+   "removalSells": 0,
+   "cagr": 5.58,
+   "maxDD": 38.3,
+   "finalEquity": 1325012
+  },
+  {
+   "index": "NIFTY 50",
+   "preset": "high52w",
+   "run": "A today-list",
+   "symbols": 50,
+   "trades": 30,
+   "removalSells": 0,
+   "cagr": -0.06,
+   "maxDD": 2.3,
+   "finalEquity": 494502
+  },
+  {
+   "index": "NIFTY 50",
+   "preset": "high52w",
+   "run": "B pit-exit",
+   "symbols": 89,
+   "trades": 29,
+   "removalSells": 0,
+   "cagr": -0.06,
+   "maxDD": 2.3,
+   "finalEquity": 494614
+  },
+  {
+   "index": "NIFTY 50",
+   "preset": "high52w",
+   "run": "C pit-hold",
+   "symbols": 89,
+   "trades": 29,
+   "removalSells": 0,
+   "cagr": -0.06,
+   "maxDD": 2.3,
+   "finalEquity": 494614
+  },
+  {
+   "index": "NIFTY 50",
+   "missingNoData": [
+    "CAIRN",
+    "HDFC",
+    "IDFC",
+    "JPASSOCIAT",
+    "MCDOWELL-N",
+    "RANBAXY",
+    "RELCAPITAL",
+    "STER",
+    "TATAMOTORS",
+    "TATAMTRDVR"
+   ]
+  },
+  {
+   "index": "NIFTY NEXT 50",
+   "preset": "ma_stack",
+   "run": "A today-list",
+   "symbols": 50,
+   "trades": 2447,
+   "removalSells": 0,
+   "cagr": 3.57,
+   "maxDD": 8.95,
+   "finalEquity": 937457
+  },
+  {
+   "index": "NIFTY NEXT 50",
+   "preset": "ma_stack",
+   "run": "B pit-exit",
+   "symbols": 160,
+   "trades": 2637,
+   "removalSells": 24,
+   "cagr": 0.23,
+   "maxDD": 22.37,
+   "finalEquity": 520731
+  },
+  {
+   "index": "NIFTY NEXT 50",
+   "preset": "ma_stack",
+   "run": "C pit-hold",
+   "symbols": 160,
+   "trades": 2623,
+   "removalSells": 0,
+   "cagr": 0.33,
+   "maxDD": 21.86,
+   "finalEquity": 530840
+  },
+  {
+   "index": "NIFTY NEXT 50",
+   "preset": "golden_cross",
+   "run": "A today-list",
+   "symbols": 50,
+   "trades": 101,
+   "removalSells": 0,
+   "cagr": 23.41,
+   "maxDD": 43.8,
+   "finalEquity": 21751565
+  },
+  {
+   "index": "NIFTY NEXT 50",
+   "preset": "golden_cross",
+   "run": "B pit-exit",
+   "symbols": 160,
+   "trades": 86,
+   "removalSells": 10,
+   "cagr": 4.78,
+   "maxDD": 39.43,
+   "finalEquity": 1156091
+  },
+  {
+   "index": "NIFTY NEXT 50",
+   "preset": "golden_cross",
+   "run": "C pit-hold",
+   "symbols": 160,
+   "trades": 90,
+   "removalSells": 0,
+   "cagr": 5.42,
+   "maxDD": 39.43,
+   "finalEquity": 1289705
+  },
+  {
+   "index": "NIFTY NEXT 50",
+   "preset": "high52w",
+   "run": "A today-list",
+   "symbols": 50,
+   "trades": 43,
+   "removalSells": 0,
+   "cagr": 0.54,
+   "maxDD": 3.63,
+   "finalEquity": 551170
+  },
+  {
+   "index": "NIFTY NEXT 50",
+   "preset": "high52w",
+   "run": "B pit-exit",
+   "symbols": 160,
+   "trades": 24,
+   "removalSells": 2,
+   "cagr": -0.13,
+   "maxDD": 3.7,
+   "finalEquity": 488528
+  },
+  {
+   "index": "NIFTY NEXT 50",
+   "preset": "high52w",
+   "run": "C pit-hold",
+   "symbols": 160,
+   "trades": 24,
+   "removalSells": 0,
+   "cagr": -0.13,
+   "maxDD": 3.74,
+   "finalEquity": 488343
+  },
+  {
+   "index": "NIFTY NEXT 50",
+   "missingNoData": [
+    "ABIRLANUVO",
+    "ANDHRABANK",
+    "CAIRN",
+    "CORPBANK",
+    "GSKCONS",
+    "INGVYSYABK",
+    "MCDOWELL-N",
+    "MINDTREE",
+    "MOSERBAER",
+    "PATNI",
+    "PEL",
+    "PUNJLLOYD",
+    "RANBAXY",
+    "RELCAPITAL",
+    "RNRL",
+    "SYNDIBANK"
+   ]
+  },
+  {
+   "index": "NIFTY 100",
+   "preset": "ma_stack",
+   "run": "A today-list",
+   "symbols": 100,
+   "trades": 2960,
+   "removalSells": 0,
+   "cagr": 2.9,
+   "maxDD": 18.91,
+   "finalEquity": 834814
+  },
+  {
+   "index": "NIFTY 100",
+   "preset": "ma_stack",
+   "run": "B pit-exit",
+   "symbols": 189,
+   "trades": 3040,
+   "removalSells": 10,
+   "cagr": -1.1,
+   "maxDD": 34.24,
+   "finalEquity": 409998
+  },
+  {
+   "index": "NIFTY 100",
+   "preset": "ma_stack",
+   "run": "C pit-hold",
+   "symbols": 189,
+   "trades": 3030,
+   "removalSells": 0,
+   "cagr": -0.99,
+   "maxDD": 35.19,
+   "finalEquity": 418109
+  },
+  {
+   "index": "NIFTY 100",
+   "preset": "golden_cross",
+   "run": "A today-list",
+   "symbols": 100,
+   "trades": 118,
+   "removalSells": 0,
+   "cagr": 4.43,
+   "maxDD": 49.12,
+   "finalEquity": 1088008
+  },
+  {
+   "index": "NIFTY 100",
+   "preset": "golden_cross",
+   "run": "B pit-exit",
+   "symbols": 189,
+   "trades": 122,
+   "removalSells": 1,
+   "cagr": 3.89,
+   "maxDD": 61.54,
+   "finalEquity": 991927
+  },
+  {
+   "index": "NIFTY 100",
+   "preset": "golden_cross",
+   "run": "C pit-hold",
+   "symbols": 189,
+   "trades": 116,
+   "removalSells": 0,
+   "cagr": 2.44,
+   "maxDD": 59.17,
+   "finalEquity": 771327
+  },
+  {
+   "index": "NIFTY 100",
+   "preset": "high52w",
+   "run": "A today-list",
+   "symbols": 100,
+   "trades": 71,
+   "removalSells": 0,
+   "cagr": 0.51,
+   "maxDD": 4.36,
+   "finalEquity": 548144
+  },
+  {
+   "index": "NIFTY 100",
+   "preset": "high52w",
+   "run": "B pit-exit",
+   "symbols": 189,
+   "trades": 50,
+   "removalSells": 1,
+   "cagr": -0.15,
+   "maxDD": 4.48,
+   "finalEquity": 486754
+  },
+  {
+   "index": "NIFTY 100",
+   "preset": "high52w",
+   "run": "C pit-hold",
+   "symbols": 189,
+   "trades": 50,
+   "removalSells": 0,
+   "cagr": -0.15,
+   "maxDD": 4.45,
+   "finalEquity": 486892
+  },
+  {
+   "index": "NIFTY 100",
+   "missingNoData": [
+    "ABIRLANUVO",
+    "ANDHRABANK",
+    "CAIRN",
+    "CORPBANK",
+    "GSKCONS",
+    "HDFC",
+    "IDFC",
+    "INGVYSYABK",
+    "JPASSOCIAT",
+    "MCDOWELL-N",
+    "MINDTREE",
+    "MOSERBAER",
+    "PATNI",
+    "PEL",
+    "PUNJLLOYD",
+    "RANBAXY",
+    "RELCAPITAL",
+    "RNRL",
+    "STER",
+    "SYNDIBANK",
+    "TATAMOTORS",
+    "TATAMTRDVR"
+   ]
+  }
+ ]
+}
