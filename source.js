@@ -77,7 +77,8 @@ export async function loadMembership(fetchImpl = globalThis.fetch) {
   const ref = ds.snap.manifest.ref && ds.snap.manifest.ref.membership;
   if (!ref) return { ok: false, code: 'NO_MEMBERSHIP', detail: 'this dataset has no point-in-time index lists (published before P6)' };
   try {
-    const r = await fetchImpl(new URL(ref.path, ds.baseUrl).href, { cache: 'no-cache' });
+    // manifest paths are relative to <base>data/<snapshotBase>, the same rule the client uses (eod2-client.js openSnapshot)
+    const r = await fetchImpl(new URL(ref.path, ds.baseUrl + 'data/' + (ds.snap.manifest.snapshotBase || '')).href, { cache: 'no-cache' });
     if (!r.ok) return { ok: false, code: 'FETCH_FAILED', detail: 'HTTP ' + r.status };
     const bytes = new Uint8Array(await r.arrayBuffer());
     const hex = [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map(b => b.toString(16).padStart(2, '0')).join('');
