@@ -544,5 +544,6 @@
 <script type="module" src="ui.js"></script>
 <script type="module" src="ui-p4.js"></script>
 <script type="module" src="ui-p5.js"></script>
+<script>if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(() => {});</script>
 </body>
 </html>

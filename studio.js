@@ -169,11 +169,34 @@ export function animateNumber(el, target, format, opts = {}) {
 
 export const DISCLAIMER = 'Backtested · hypothetical · educational only · not investment advice';
 
-/* Publish-lag check: a deck must not carry data newer than the cutoff. */
-export function publishCheck(result, { lagDays = 90, now = Date.now() } = {}) {
+/* P8: dataset ids look like 2026-11-12-r1. Returns <0, 0, >0; null if either is not a dataset id. */
+export function compareDatasetId(a, b) {
+  const p = s => { const m = /^(\d{4}-\d{2}-\d{2})-r(\d+)$/.exec(String(s || '')); return m ? [m[1], +m[2]] : null; };
+  const x = p(a), y = p(b);
+  if (!x || !y) return null;
+  return x[0] !== y[0] ? (x[0] < y[0] ? -1 : 1) : x[1] - y[1];
+}
+
+/* P8: corrections ledger (corrections.json): data fixes made after a dataset was published. A run on an older
+   dataset than a fix touching one of its symbols must be re-run before it is published. */
+export function correctionsFor(ledger, datasetId, symbols) {
+  const syms = new Set(symbols || []);
+  return (ledger?.corrections || []).filter(c => (c.symbols || []).some(s => syms.has(s) || s === '*') && compareDatasetId(datasetId, c.fixedInDataset) < 0);
+}
+
+/* Publish-lag check: a deck must not carry data newer than the cutoff, must come from a named official dataset,
+   and must not predate a correction of its symbols. */
+export function publishCheck(result, { lagDays = 90, now = Date.now(), corrections } = {}) {
   const bars = result.bars;
   const problems = [];
   if (!bars || !bars.t.length) return { ok: false, problems: ['No data in this result.'] };
+  const datasetId = result.dataSource?.datasetId || null;
+  if (compareDatasetId(datasetId, datasetId) === null)
+    problems.push('This run did not use the official dataset (source: ' + (result.dataSource?.source || 'unknown') + '). Only runs on a named dataset can be published.');
+  else if (!corrections)
+    problems.push('The corrections list (corrections.json) did not load, so this run cannot be checked against later data fixes.');
+  else for (const c of correctionsFor(corrections, datasetId, [bars.symbol].filter(Boolean)))
+    problems.push(`Data for ${c.symbols.join(', ')} was corrected in dataset ${c.fixedInDataset} (${c.what}). This run used ${datasetId}: re-run it first.`);
   const lastDate = result.meta.dataAsOf || bars.t[bars.t.length - 1];
   const ageDays = (now - lastDate) / 86400000;
   if (ageDays < lagDays)
@@ -184,5 +207,5 @@ export function publishCheck(result, { lagDays = 90, now = Date.now() } = {}) {
     problems.push('No trades were taken, so there is no performance to show.');
   if (result.invariants && !result.invariants.ok)
     problems.push('This run failed its own checks (' + result.invariants.problems[0] + '). It cannot be published.');
-  return { ok: problems.length === 0, problems, lastDate, ageDays };
+  return { ok: problems.length === 0, problems, lastDate, ageDays, datasetId };
 }

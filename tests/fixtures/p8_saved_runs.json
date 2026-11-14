@@ -1,0 +1,204 @@
+{
+ "engine": "btlab-engine-2.0",
+ "recordedOn": "v24.20.0",
+ "runs": [
+  {
+   "symbol": "RELIANCE",
+   "strategy": {
+    "schemaVersion": 2,
+    "id": "ma_stack",
+    "label": "Moving-average stack breakout",
+    "note": "Price closes above all five moving averages, crossing the fastest on the signal day.",
+    "indicators": [
+     {
+      "key": "sma5",
+      "type": "SMA",
+      "source": "close",
+      "period": 5
+     },
+     {
+      "key": "sma20",
+      "type": "SMA",
+      "source": "close",
+      "period": 20
+     },
+     {
+      "key": "sma50",
+      "type": "SMA",
+      "source": "close",
+      "period": 50
+     },
+     {
+      "key": "sma100",
+      "type": "SMA",
+      "source": "close",
+      "period": 100
+     },
+     {
+      "key": "sma200",
+      "type": "SMA",
+      "source": "close",
+      "period": 200
+     }
+    ],
+    "entry": {
+     "join": "ALL",
+     "conditions": [
+      [
+       "cross_above",
+       "close",
+       "sma5"
+      ],
+      [
+       "gt",
+       "close",
+       "sma20"
+      ],
+      [
+       "gt",
+       "close",
+       "sma50"
+      ],
+      [
+       "gt",
+       "close",
+       "sma100"
+      ],
+      [
+       "gt",
+       "close",
+       "sma200"
+      ]
+     ],
+     "order": {
+      "type": "market_open"
+     }
+    },
+    "exit": {
+     "accounting": "FIFO",
+     "condition": [
+      "cross_below",
+      "close",
+      "sma20"
+     ],
+     "stopPct": 8,
+     "order": {
+      "type": "market_open"
+     }
+    },
+    "pyramiding": {
+     "enabled": false
+    },
+    "sizing": {
+     "mode": "fixed",
+     "value": 20000,
+     "capital": 100000,
+     "compounds": true
+    },
+    "costs": {
+     "preset": "zerodha_delivery",
+     "slippageBps": 5,
+     "gapAware": true,
+     "gapFactor": 10,
+     "volumeCapPct": 2
+    },
+    "sameBarExit": "never"
+   },
+   "options": {
+    "raw": false
+   },
+   "datasetId": "2026-11-12-r1",
+   "fingerprint": "d24cc049b7ca151e6414f3d3ed3e7137f6647ee3cf23357893bbc90a424762d4",
+   "resultSha256": "8ac1250b7675fb1d430bfb4cc85df0fab36a55de75967931194bdc40345de7a5",
+   "trades": 105
+  },
+  {
+   "symbol": "INFY",
+   "strategy": {
+    "btdesk": "superbreakout",
+    "params": {
+     "perTxAmount": 5000,
+     "maxBuys": 5
+    }
+   },
+   "options": {
+    "raw": false
+   },
+   "datasetId": "2026-11-12-r1",
+   "fingerprint": "ec7a6b701a06bdf01a2f8c90806d134673998bb554f6d2818808a7b5de40e7f7",
+   "resultSha256": "bab5ceedda5e2ef8149cf14932ddc70578062509c7cf808ae983be7bc6b9adb4",
+   "trades": 48
+  },
+  {
+   "symbol": "NIFTYBEES",
+   "strategy": {
+    "schemaVersion": 2,
+    "id": "golden_cross",
+    "label": "Golden cross / death cross",
+    "note": "50-day MA crosses above the 200-day MA; exit on the reverse cross.",
+    "indicators": [
+     {
+      "key": "sma50",
+      "type": "SMA",
+      "source": "close",
+      "period": 50
+     },
+     {
+      "key": "sma200",
+      "type": "SMA",
+      "source": "close",
+      "period": 200
+     }
+    ],
+    "entry": {
+     "join": "ALL",
+     "conditions": [
+      [
+       "cross_above",
+       "sma50",
+       "sma200"
+      ]
+     ],
+     "order": {
+      "type": "market_open"
+     }
+    },
+    "exit": {
+     "accounting": "FIFO",
+     "condition": [
+      "cross_below",
+      "sma50",
+      "sma200"
+     ],
+     "order": {
+      "type": "market_open"
+     }
+    },
+    "pyramiding": {
+     "enabled": false
+    },
+    "sizing": {
+     "mode": "capitalFraction",
+     "value": 0.95,
+     "capital": 100000,
+     "compounds": true
+    },
+    "costs": {
+     "preset": "zerodha_delivery",
+     "slippageBps": 5,
+     "gapAware": true,
+     "gapFactor": 10,
+     "volumeCapPct": 2
+    },
+    "sameBarExit": "never"
+   },
+   "options": {
+    "raw": true
+   },
+   "datasetId": "2026-11-12-r1",
+   "fingerprint": "f477d4663c9308975e849d471552b798e4c9e3aca64797dc1b83e447615bd594",
+   "resultSha256": "bd61f9362fd59410efaf99994e0f6e337c3cd842f1eb53a65f02abee9e0bd523",
+   "trades": 6
+  }
+ ]
+}

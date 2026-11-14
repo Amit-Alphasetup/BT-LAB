@@ -598,6 +598,8 @@ $('rep-csv').addEventListener('click', () => {
 /* ---------------- studio tab ---------------- */
 
 let deck = [], deckIdx = 0;
+let correctionsLedger = null;          // P8: corrections.json, loaded once; publishCheck blocks if it is missing
+fetch('corrections.json').then(r => r.ok ? r.json() : null).then(j => { correctionsLedger = j; }).catch(() => {});
 
 function buildStudioTab(res, schema) {
   const other = reportState?.other;
@@ -606,7 +608,7 @@ function buildStudioTab(res, schema) {
   deckIdx = 0;
   $('studio-empty').style.display = 'none';
   $('studio-body').style.display = '';
-  const chk = ST.publishCheck(res);
+  const chk = ST.publishCheck(res, { corrections: correctionsLedger });
   $('studio-warn').innerHTML = chk.ok
     ? ''
     : `<div class="notice bad"><b>Check before recording</b><ul>${chk.problems.map(p => `<li>${esc(p)}</li>`).join('')}</ul></div>`;

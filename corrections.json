@@ -1,0 +1,5 @@
+{
+ "about": "Corrections ledger: every fix to published price data, newest last. Studio refuses to publish a run on a dataset older than fixedInDataset for a symbol listed here. symbols ['*'] = all. Fields: date (YYYY-MM-DD the fix was made), symbols, what (one line), fixedInDataset (first dataset id with the fix), evidence (where the fix is proven).",
+ "version": 1,
+ "corrections": []
+}
